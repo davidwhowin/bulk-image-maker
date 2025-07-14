@@ -9,6 +9,9 @@ export interface ImageFile {
   error?: string;
   preview?: string;
   compressed?: CompressedImage;
+  // Folder structure preservation
+  folderPath?: string;
+  relativePath?: string;
 }
 
 export interface CompressedImage {
@@ -44,3 +47,13 @@ export interface ProcessingStats {
   compressionRatio: number;
   processingTime: number;
 }
+
+// Re-export upload types
+export type {
+  UploadValidationRules,
+  UploadError,
+  UploadResult,
+  UserUploadAreaProps,
+  DragState,
+  UploadAreaState,
+} from './upload';
