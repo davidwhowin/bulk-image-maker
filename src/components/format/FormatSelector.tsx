@@ -12,6 +12,10 @@ interface FormatSelectorProps {
   showPreview?: boolean;
   showDetails?: boolean;
   originalSize?: number;
+  lossless?: boolean;
+  onLosslessChange?: (lossless: boolean) => void;
+  compressionLevel?: number;
+  onCompressionLevelChange?: (level: number) => void;
 }
 
 interface BatchFormatSelectorProps {
@@ -30,12 +34,18 @@ export function FormatSelector({
   showPreview = false,
   showDetails = false,
   originalSize,
+  lossless = false,
+  onLosslessChange,
+  compressionLevel = 9,
+  onCompressionLevelChange,
 }: FormatSelectorProps) {
   const [formatSupport, setFormatSupport] = useState<FormatSupport>({
     jpeg: true,
     png: true,
     webp: true,
     avif: false,
+    svg: true,
+    jxl: false,
   });
   
   const [browserSupport] = useState(() => new BrowserFormatSupport());
@@ -43,9 +53,10 @@ export function FormatSelector({
   useEffect(() => {
     // Detect format support
     const detectSupport = async () => {
-      const [webp, avif] = await Promise.all([
+      const [webp, avif, jxl] = await Promise.all([
         browserSupport.detectWebPSupport(),
         browserSupport.detectAVIFSupport(),
+        browserSupport.detectJXLSupport(),
       ]);
 
       setFormatSupport({
@@ -53,10 +64,12 @@ export function FormatSelector({
         png: true,
         webp,
         avif,
+        svg: true, // SVG is always supported in browsers
+        jxl, // JPEG XL support depends on browser/WebAssembly
       });
     };
 
-    detectSupport();
+    void detectSupport();
   }, [browserSupport]);
 
   const handleFormatChange = useCallback((newFormat: SupportedFormat) => {
@@ -73,12 +86,14 @@ export function FormatSelector({
       webp: 80,
       avif: 75,
       png: 100,
+      svg: 85, // SVG optimization level (0-100)
+      jxl: 70, // JPEG XL can achieve better quality at lower settings
     };
     return qualityMap[format];
   };
 
   const isLossyFormat = (format: SupportedFormat): boolean => {
-    return ['jpeg', 'webp', 'avif'].includes(format);
+    return ['jpeg', 'webp', 'avif', 'jxl'].includes(format);
   };
 
   const formatHasLimitedSupport = (format: SupportedFormat): boolean => {
@@ -95,6 +110,8 @@ export function FormatSelector({
       png: { lossy: false, lossless: true, transparency: true, animation: false },
       webp: { lossy: true, lossless: true, transparency: true, animation: true },
       avif: { lossy: true, lossless: true, transparency: true, animation: false },
+      svg: { lossy: false, lossless: true, transparency: true, animation: true },
+      jxl: { lossy: true, lossless: true, transparency: true, animation: false },
     };
     return characteristics[format];
   };
@@ -108,6 +125,8 @@ export function FormatSelector({
       png: 0.7, // PNG compression is consistent
       webp: 0.08 + (quality / 100) * 0.32, // 8-40% of original  
       avif: 0.06 + (quality / 100) * 0.24, // 6-30% of original
+      svg: 0.3 + (quality / 100) * 0.5, // 30-80% of original (depends on optimization level)
+      jxl: 0.04 + (quality / 100) * 0.20, // 4-24% of original (better than AVIF)
     };
     
     const estimatedSize = originalSize * compressionRatios[format];
@@ -146,14 +165,42 @@ export function FormatSelector({
           <option value="avif" disabled={!formatSupport.avif}>
             AVIF {!formatSupport.avif && '(Limited Support)'}
           </option>
+          <option value="svg" disabled={!formatSupport.svg}>
+            SVG {!formatSupport.svg && '(Not Supported)'}
+          </option>
+          <option value="jxl" disabled={!formatSupport.jxl}>
+            JPEG XL {!formatSupport.jxl && '(Experimental)'}
+          </option>
         </select>
       </div>
 
-      {/* Quality Slider (for lossy formats) */}
-      {isLossyFormat(selectedFormat) && (
+      {/* Lossless Mode Toggle */}
+      {onLosslessChange && (
+        <div className="border-t border-gray-200 pt-4">
+          <div className="flex items-center">
+            <input
+              id="lossless-toggle"
+              type="checkbox"
+              checked={lossless}
+              onChange={(e) => onLosslessChange(e.target.checked)}
+              disabled={disabled}
+              className="h-4 w-4 text-primary-600 rounded border-gray-300 focus:ring-primary-500"
+            />
+            <label htmlFor="lossless-toggle" className="ml-2 text-sm font-medium text-gray-700">
+              Enable Lossless Compression
+            </label>
+          </div>
+          <p className="text-xs text-gray-500 mt-1">
+            Maximum quality preservation with larger file sizes
+          </p>
+        </div>
+      )}
+
+      {/* Quality Slider (for lossy formats, SVG, and when not lossless) */}
+      {(isLossyFormat(selectedFormat) || selectedFormat === 'svg') && !lossless && (
         <div>
           <label htmlFor="quality-slider" className="block text-sm font-medium text-gray-700 mb-2">
-            Quality: {quality}%
+            {selectedFormat === 'svg' ? 'Optimization Level' : 'Quality'}: {quality}%
           </label>
           <input
             id="quality-slider"
@@ -167,8 +214,32 @@ export function FormatSelector({
             aria-valuetext={`${quality}% quality`}
           />
           <div className="flex justify-between text-xs text-gray-500 mt-1">
-            <span>Smaller file</span>
-            <span>Better quality</span>
+            <span>{selectedFormat === 'svg' ? 'More optimization' : 'Smaller file'}</span>
+            <span>{selectedFormat === 'svg' ? 'Less optimization' : 'Better quality'}</span>
+          </div>
+        </div>
+      )}
+
+      {/* PNG Compression Level (for PNG lossless mode) */}
+      {selectedFormat === 'png' && lossless && onCompressionLevelChange && (
+        <div>
+          <label htmlFor="compression-level" className="block text-sm font-medium text-gray-700 mb-2">
+            Compression Level: {compressionLevel}
+          </label>
+          <input
+            id="compression-level"
+            type="range"
+            min="0"
+            max="9"
+            value={compressionLevel}
+            onChange={(e) => onCompressionLevelChange(parseInt(e.target.value))}
+            disabled={disabled}
+            className="block w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer disabled:opacity-50"
+            aria-valuetext={`Compression level ${compressionLevel}`}
+          />
+          <div className="flex justify-between text-xs text-gray-500 mt-1">
+            <span>Fast (0)</span>
+            <span>Maximum compression (9)</span>
           </div>
         </div>
       )}
@@ -225,12 +296,39 @@ export function FormatSelector({
         </div>
       )}
 
+      {/* Lossless Mode Information */}
+      {lossless && (
+        <div className="bg-blue-50 p-3 rounded-md">
+          <h4 className="text-sm font-medium text-blue-800 mb-2">Lossless Compression Active</h4>
+          <div className="text-sm text-blue-700 space-y-1">
+            <div>✓ Perfect quality preservation</div>
+            <div>✓ No visual degradation</div>
+            {selectedFormat === 'png' && <div>✓ Optimized PNG compression</div>}
+            {selectedFormat === 'webp' && <div>✓ WebP lossless mode (~26% smaller than PNG)</div>}
+            {selectedFormat === 'avif' && <div>✓ AVIF lossless mode (~50% smaller than PNG)</div>}
+            {selectedFormat === 'jxl' && <div>✓ JPEG XL lossless mode (~60% smaller than PNG)</div>}
+            {selectedFormat === 'jpeg' && <div>⚠️ JPEG is not truly lossless (using quality 100)</div>}
+            {selectedFormat === 'svg' && <div>✓ Vector format maintains perfect quality at any size</div>}
+          </div>
+        </div>
+      )}
+
       {/* Recommendations */}
-      {showRecommendations && (
+      {showRecommendations && !lossless && (
         <div className="bg-green-50 p-3 rounded-md">
           <h4 className="text-sm font-medium text-green-800 mb-2">Recommended</h4>
           <p className="text-sm text-green-700">
-            For photos: JPEG or WebP • For graphics: PNG or WebP • For best compression: AVIF
+            For photos: JPEG or WebP • For graphics: PNG or WebP • For vectors: SVG • For maximum compression: JPEG XL • For wide compatibility: AVIF
+          </p>
+        </div>
+      )}
+
+      {/* Lossless Recommendations */}
+      {showRecommendations && lossless && (
+        <div className="bg-green-50 p-3 rounded-md">
+          <h4 className="text-sm font-medium text-green-800 mb-2">Lossless Recommendations</h4>
+          <p className="text-sm text-green-700">
+            For maximum compression: JPEG XL lossless • For wide compatibility: AVIF lossless • For legacy support: PNG • For balanced: WebP lossless • For vectors: SVG
           </p>
         </div>
       )}
@@ -281,6 +379,9 @@ export function BatchFormatSelector({
 
   const getRecommendedFormat = (file: File): SupportedFormat => {
     const type = file.type;
+    if (type.includes('svg')) {
+      return 'svg'; // Keep SVG for vector graphics
+    }
     if (type.includes('jpeg') || type.includes('jpg')) {
       return 'webp'; // Photos benefit from WebP
     }
@@ -346,6 +447,8 @@ export function BatchFormatSelector({
                   <option value="png">PNG</option>
                   <option value="webp">WebP</option>
                   <option value="avif">AVIF</option>
+                  <option value="svg">SVG</option>
+                  <option value="jxl">JPEG XL</option>
                 </select>
               </div>
             </div>

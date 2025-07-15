@@ -1,4 +1,4 @@
-export type SupportedFormat = 'jpeg' | 'png' | 'webp' | 'avif';
+export type SupportedFormat = 'jpeg' | 'png' | 'webp' | 'avif' | 'svg' | 'jxl';
 
 export interface FormatConversionOptions {
   outputFormat: SupportedFormat;
@@ -6,6 +6,25 @@ export interface FormatConversionOptions {
   preserveMetadata?: boolean;
   preserveAlpha?: boolean; // For formats that support transparency
   maxFileSize?: number; // Maximum output file size in bytes
+  
+  /** Enable lossless compression mode */
+  lossless?: boolean;
+  
+  /** Lossless compression options */
+  losslessOptions?: {
+    /** PNG compression level (0-9) */
+    compressionLevel?: number;
+    
+    /** Validate lossless quality */
+    validateLossless?: boolean;
+    
+    /** Fallback format if lossless not supported */
+    fallbackFormat?: SupportedFormat;
+    
+    /** Priority: 'quality' | 'speed' | 'size' */
+    priority?: 'quality' | 'speed' | 'size';
+  };
+  
   resizeOptions?: {
     width?: number;
     height?: number;
@@ -46,6 +65,8 @@ export interface FormatSupport {
   png: boolean;
   webp: boolean;
   avif: boolean;
+  svg: boolean;
+  jxl: boolean;
 }
 
 export interface FormatCapabilities {
@@ -66,6 +87,8 @@ export interface FormatCharacteristics {
   png: FormatCapabilities;
   webp: FormatCapabilities;
   avif: FormatCapabilities;
+  svg: FormatCapabilities;
+  jxl: FormatCapabilities;
 }
 
 export interface ConversionJob {

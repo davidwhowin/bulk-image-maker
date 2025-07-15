@@ -85,6 +85,30 @@ describe('BrowserFormatSupport', () => {
       expect(isSupported).toBe(true);
     });
 
+    it('should detect JPEG XL support based on browser capability', async () => {
+      // Mock successful JPEG XL encoding (should fail initially since we haven't implemented it)
+      mockCanvas.toBlob.mockImplementation((callback) => {
+        setTimeout(() => callback(new Blob(['jxl-data'], { type: 'image/jxl' })), 1);
+      });
+
+      const isSupported = await formatSupport.detectJXLSupport();
+      expect(isSupported).toBe(true);
+    });
+
+    it('should handle JPEG XL detection failure gracefully', async () => {
+      // Mock JPEG XL encoding failure
+      mockCanvas.toBlob.mockImplementation((callback, type) => {
+        if (type === 'image/jxl') {
+          setTimeout(() => callback(null), 1);
+        } else {
+          setTimeout(() => callback(new Blob(['other-data'], { type })), 1);
+        }
+      });
+
+      const isSupported = await formatSupport.detectJXLSupport();
+      expect(isSupported).toBe(false);
+    });
+
     it('should return false for unsupported formats', () => {
       expect(formatSupport.isFormatSupported('bmp' as any)).toBe(false);
       expect(formatSupport.isFormatSupported('tiff' as any)).toBe(false);
@@ -109,6 +133,36 @@ describe('BrowserFormatSupport', () => {
 
       await formatSupport.detectWebPSupport();
       const fallback = formatSupport.getFallbackFormat('avif');
+      expect(fallback).toBe('webp');
+    });
+
+    it('should provide JPEG XL fallback to AVIF/WebP based on support', async () => {
+      // Mock AVIF as supported
+      mockCanvas.toBlob.mockImplementation((callback, type) => {
+        if (type === 'image/avif') {
+          setTimeout(() => callback(new Blob(['avif-data'], { type: 'image/avif' })), 1);
+        } else {
+          callback(null);
+        }
+      });
+
+      await formatSupport.detectAVIFSupport();
+      const fallback = formatSupport.getFallbackFormat('jxl');
+      expect(fallback).toBe('avif');
+    });
+
+    it('should fallback JPEG XL to WebP when AVIF not supported', async () => {
+      // Mock AVIF as not supported, WebP as supported
+      mockCanvas.toBlob.mockImplementation((callback, type) => {
+        if (type === 'image/webp') {
+          setTimeout(() => callback(new Blob(['webp-data'], { type: 'image/webp' })), 1);
+        } else {
+          callback(null);
+        }
+      });
+
+      await formatSupport.detectWebPSupport();
+      const fallback = formatSupport.getFallbackFormat('jxl');
       expect(fallback).toBe('webp');
     });
 
@@ -188,6 +242,75 @@ describe('FormatConverter', () => {
         'image/jpeg',
         0.95
       );
+    });
+
+    it('should convert JPEG to JPEG XL with high compression', async () => {
+      const options: FormatConversionOptions = {
+        outputFormat: 'jxl',
+        quality: 75,
+        preserveMetadata: false,
+      };
+
+      // Mock successful JPEG XL conversion (will fail initially)
+      const mockJxlBlob = new Blob(['jxl-data'], { type: 'image/jxl' });
+      mockCanvas.toBlob.mockImplementation((callback) => {
+        setTimeout(() => callback(mockJxlBlob), 1);
+      });
+
+      const result = await converter.convertFormat(mockFile, options);
+
+      expect(result.success).toBe(true);
+      expect(result.outputBlob?.type).toBe('image/jxl');
+      expect(result.originalFormat).toBe('jpeg');
+      expect(result.outputFormat).toBe('jxl');
+    });
+
+    it('should handle JPEG XL conversion with lossless mode', async () => {
+      const options: FormatConversionOptions = {
+        outputFormat: 'jxl',
+        quality: 100,
+        lossless: true,
+        preserveMetadata: true,
+      };
+
+      // Mock lossless JPEG XL conversion (will fail initially)
+      const mockJxlBlob = new Blob(['jxl-lossless-data'], { type: 'image/jxl' });
+      mockCanvas.toBlob.mockImplementation((callback) => {
+        setTimeout(() => callback(mockJxlBlob), 1);
+      });
+
+      const result = await converter.convertFormat(mockFile, options);
+
+      expect(result.success).toBe(true);
+      expect(result.outputFormat).toBe('jxl');
+      expect(result.preservedMetadata).toBe(true);
+    });
+
+    it('should handle JPEG XL encoding failure with fallback', async () => {
+      const options: FormatConversionOptions = {
+        outputFormat: 'jxl',
+        quality: 80,
+      };
+
+      // Mock JPEG XL encoding failure, should fallback to AVIF/WebP
+      mockCanvas.toBlob.mockImplementation((callback, type) => {
+        if (type === 'image/jxl') {
+          setTimeout(() => callback(null), 1);
+        } else {
+          setTimeout(() => callback(new Blob(['fallback-data'], { type })), 1);
+        }
+      });
+
+      const result = await converter.convertFormat(mockFile, options);
+
+      // Should either succeed with fallback or fail gracefully
+      if (result.success) {
+        expect(result.warnings).toEqual(
+          expect.arrayContaining([expect.stringMatching(/fallback|jxl.*not supported/i)])
+        );
+      } else {
+        expect(result.error).toMatch(/format.*not supported|conversion.*failed|compatible alternative/i);
+      }
     });
   });
 
@@ -344,6 +467,7 @@ describe('FormatConverter', () => {
       expect(converter.getOptimalQuality('webp')).toBe(80);
       expect(converter.getOptimalQuality('avif')).toBe(75);
       expect(converter.getOptimalQuality('png')).toBe(100); // Lossless
+      expect(converter.getOptimalQuality('jxl')).toBe(70); // JPEG XL can achieve better quality at lower settings
     });
 
     it('should estimate processing time based on format and file size', () => {
@@ -351,6 +475,7 @@ describe('FormatConverter', () => {
         { format: 'jpeg' as const, size: 1024 * 1024, expected: 100 },
         { format: 'webp' as const, size: 1024 * 1024, expected: 200 },
         { format: 'avif' as const, size: 1024 * 1024, expected: 500 },
+        { format: 'jxl' as const, size: 1024 * 1024, expected: 600 }, // JPEG XL encoding is slower due to complexity
       ];
 
       estimates.forEach(({ format, size, expected }) => {

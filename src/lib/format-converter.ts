@@ -6,7 +6,11 @@ import type {
   BatchConversionProgress,
   MixedConversionRequest
 } from '@/types/format-conversion';
+import type { LosslessCompressionOptions } from '@/types/lossless';
 import { formatErrorHandler } from './format-error-handler';
+import { LosslessCompressor } from './lossless-compression';
+import { SvgOptimizer } from './svg-optimization';
+import type { SvgOptimizationOptions } from '@/types/svg-optimization';
 
 /**
  * Browser format support detection with caching
@@ -19,8 +23,8 @@ export class BrowserFormatSupport {
    * Check if a format is supported by the browser
    */
   isFormatSupported(format: SupportedFormat): boolean {
-    // JPEG and PNG are always supported
-    if (format === 'jpeg' || format === 'png') {
+    // JPEG, PNG, and SVG are always supported
+    if (format === 'jpeg' || format === 'png' || format === 'svg') {
       return true;
     }
 
@@ -31,7 +35,9 @@ export class BrowserFormatSupport {
 
     // For synchronous calls, assume supported for modern formats
     // Real detection happens asynchronously
-    return format === 'webp'; // Conservative default
+    if (format === 'webp') return true; // Conservative default
+    if (format === 'jxl') return false; // JPEG XL requires special handling
+    return false;
   }
 
   /**
@@ -67,6 +73,23 @@ export class BrowserFormatSupport {
   }
 
   /**
+   * Detect JPEG XL support asynchronously
+   */
+  async detectJXLSupport(): Promise<boolean> {
+    if (this.detectionPromises.has('jxl')) {
+      return this.detectionPromises.get('jxl')!;
+    }
+
+    // JPEG XL uses WebAssembly, so check for native browser support first
+    const promise = this.createJXLDetectionTest();
+    this.detectionPromises.set('jxl', promise);
+    
+    const isSupported = await promise;
+    this.supportCache.set('jxl', isSupported);
+    return isSupported;
+  }
+
+  /**
    * Get all supported formats
    */
   getSupportedFormats(): FormatSupport {
@@ -75,6 +98,8 @@ export class BrowserFormatSupport {
       png: true,
       webp: this.supportCache.get('webp') ?? true, // Assume WebP support
       avif: this.supportCache.get('avif') ?? false, // Conservative for AVIF
+      svg: true, // SVG is always supported
+      jxl: this.supportCache.get('jxl') ?? false, // JPEG XL requires WebAssembly or native support
     };
   }
 
@@ -82,12 +107,14 @@ export class BrowserFormatSupport {
    * Get fallback format for unsupported formats
    */
   getFallbackFormat(format: SupportedFormat): SupportedFormat {
-    // Fallback hierarchy: AVIF -> WebP -> JPEG, PNG stays PNG
+    // Fallback hierarchy: JXL -> AVIF -> WebP -> JPEG, PNG stays PNG, SVG stays SVG
     const fallbacks: Record<SupportedFormat, SupportedFormat> = {
+      jxl: this.supportCache.get('avif') ? 'avif' : 'webp',
       avif: 'webp',
       webp: 'jpeg',
       jpeg: 'jpeg',
       png: 'png',
+      svg: 'svg', // SVG has no fallback as it's always supported
     };
     
     return fallbacks[format];
@@ -122,6 +149,45 @@ export class BrowserFormatSupport {
       }
     });
   }
+
+  /**
+   * Create JPEG XL detection test
+   */
+  private createJXLDetectionTest(): Promise<boolean> {
+    return new Promise((resolve) => {
+      try {
+        // Check for native JPEG XL support first
+        const canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(false);
+          return;
+        }
+
+        // Try to create a blob in JPEG XL format
+        canvas.toBlob(
+          (blob) => {
+            if (blob !== null && blob.type === 'image/jxl') {
+              resolve(true);
+            } else {
+              // Native support not available, only consider WebAssembly if we could potentially load a library
+              // For now, return false as we haven't implemented the actual JPEG XL encoding library
+              resolve(false);
+            }
+          },
+          'image/jxl',
+          0.8
+        );
+      } catch {
+        // If canvas fails, return false
+        resolve(false);
+      }
+    });
+  }
+
 }
 
 /**
@@ -129,9 +195,13 @@ export class BrowserFormatSupport {
  */
 export class FormatConverter {
   private abortController: AbortController | null = null;
+  private losslessCompressor: LosslessCompressor;
+  private svgOptimizer: SvgOptimizer;
 
   constructor() {
     // Initialize format converter
+    this.losslessCompressor = new LosslessCompressor();
+    this.svgOptimizer = new SvgOptimizer();
   }
 
   /**
@@ -142,7 +212,7 @@ export class FormatConverter {
     options: FormatConversionOptions
   ): Promise<FormatConversionResult> {
     const startTime = performance.now();
-    const originalFormat = file.type.replace('image/', '') as SupportedFormat;
+    const originalFormat = file.type.replace('image/', '').replace('+xml', '') as SupportedFormat;
     
     try {
       // Validate options
@@ -165,6 +235,46 @@ export class FormatConverter {
           file.size,
           performance.now() - startTime
         );
+      }
+
+      // Handle SVG files specially
+      if (originalFormat === 'svg' || options.outputFormat === 'svg') {
+        return this.processSvgFile(file, options, originalFormat, startTime);
+      }
+
+      // Use lossless compression if requested
+      if (options.lossless) {
+        const losslessOptions: LosslessCompressionOptions = {
+          format: options.outputFormat as any, // Convert to lossless format
+          compressionLevel: options.losslessOptions?.compressionLevel,
+          lossless: true,
+          preserveMetadata: options.preserveMetadata,
+          preserveTransparency: options.preserveAlpha,
+          validateLossless: options.losslessOptions?.validateLossless,
+          fallbackFormat: options.losslessOptions?.fallbackFormat as any,
+          prioritizeSpeed: options.losslessOptions?.priority === 'speed',
+        };
+
+        const losslessResult = await this.losslessCompressor.compressLossless(file, losslessOptions);
+        
+        if (losslessResult.success && losslessResult.outputBlob) {
+          return {
+            success: true,
+            originalFormat,
+            outputFormat: options.outputFormat,
+            outputBlob: losslessResult.outputBlob,
+            originalSize: file.size,
+            outputSize: losslessResult.outputSize,
+            compressionRatio: losslessResult.compressionRatio,
+            processingTime: losslessResult.processingTime,
+            preservedAlpha: losslessResult.preservedTransparency,
+            preservedMetadata: losslessResult.preservedMetadata,
+            warnings: losslessResult.warnings,
+          };
+        } else {
+          // Fall back to regular compression if lossless fails
+          console.warn('Lossless compression failed, falling back to regular compression:', losslessResult.error);
+        }
       }
 
       // Perform conversion with memory management
@@ -361,6 +471,86 @@ export class FormatConverter {
   }
 
   /**
+   * Process SVG files with optimization
+   */
+  private async processSvgFile(
+    file: File,
+    options: FormatConversionOptions,
+    originalFormat: string,
+    startTime: number
+  ): Promise<FormatConversionResult> {
+    try {
+      // Read SVG content as text
+      const svgContent = await file.text();
+      
+      // Convert quality (0-100) to SVG optimization options
+      const svgOptions: SvgOptimizationOptions = {
+        aggressiveness: this.qualityToAggressiveness(options.quality || 85),
+        removeComments: true,
+        removeUnnecessaryData: true,
+        cleanupDefs: true,
+        optimizeColors: true,
+        minify: true,
+        coordinatePrecision: Math.max(1, Math.floor((options.quality || 85) / 25)),
+        optimizeTransforms: true,
+        removeEmptyContainers: true,
+        simplifyPaths: (options.quality || 85) > 50,
+      };
+
+      // Optimize SVG
+      const optimizationResult = await this.svgOptimizer.optimize(svgContent, svgOptions);
+      
+      if (!optimizationResult.success) {
+        return {
+          success: false,
+          originalFormat,
+          outputFormat: options.outputFormat,
+          originalSize: file.size,
+          processingTime: performance.now() - startTime,
+          error: optimizationResult.error || 'SVG optimization failed',
+        };
+      }
+
+      // Create output blob
+      const outputBlob = new Blob([optimizationResult.optimizedSvg!], { 
+        type: 'image/svg+xml' 
+      });
+
+      return {
+        success: true,
+        originalFormat,
+        outputFormat: options.outputFormat,
+        outputBlob,
+        originalSize: file.size,
+        outputSize: outputBlob.size,
+        compressionRatio: outputBlob.size / file.size,
+        processingTime: performance.now() - startTime,
+        preservedAlpha: true, // SVG always preserves transparency
+        preservedMetadata: !svgOptions.removeComments,
+      };
+
+    } catch (error) {
+      return {
+        success: false,
+        originalFormat,
+        outputFormat: options.outputFormat,
+        originalSize: file.size,
+        processingTime: performance.now() - startTime,
+        error: error instanceof Error ? error.message : 'SVG processing failed',
+      };
+    }
+  }
+
+  /**
+   * Convert quality percentage to SVG optimization aggressiveness
+   */
+  private qualityToAggressiveness(quality: number): 'conservative' | 'moderate' | 'aggressive' {
+    if (quality >= 80) return 'conservative';
+    if (quality >= 50) return 'moderate';
+    return 'aggressive';
+  }
+
+  /**
    * Get optimal quality for format
    */
   getOptimalQuality(format: SupportedFormat): number {
@@ -369,6 +559,8 @@ export class FormatConverter {
       webp: 80,
       avif: 75,
       png: 100, // Lossless
+      svg: 85, // SVG optimization level
+      jxl: 70, // JPEG XL can achieve better quality at lower settings
     };
 
     return qualityMap[format];
@@ -384,6 +576,8 @@ export class FormatConverter {
       png: 150,
       webp: 200,
       avif: 500,
+      svg: 50, // SVG is faster to process as it's text-based
+      jxl: 600, // JPEG XL encoding is slower due to complexity and WebAssembly
     };
 
     const fileSizeMB = fileSize / (1024 * 1024);
@@ -414,7 +608,7 @@ export class FormatConverter {
    * Check if format is valid
    */
   private isValidFormat(format: string): format is SupportedFormat {
-    return ['jpeg', 'png', 'webp', 'avif'].includes(format);
+    return ['jpeg', 'png', 'webp', 'avif', 'svg', 'jxl'].includes(format);
   }
 
   /**
@@ -529,6 +723,8 @@ export class FormatConverter {
       png: 'image/png',
       webp: 'image/webp',
       avif: 'image/avif',
+      svg: 'image/svg+xml',
+      jxl: 'image/jxl',
     };
 
     return mimeTypes[format];
@@ -538,7 +734,7 @@ export class FormatConverter {
    * Check if format supports alpha channel
    */
   private formatSupportsAlpha(format: SupportedFormat): boolean {
-    return ['png', 'webp', 'avif'].includes(format);
+    return ['png', 'webp', 'avif', 'svg', 'jxl'].includes(format);
   }
 
 

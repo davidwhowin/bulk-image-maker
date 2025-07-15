@@ -165,10 +165,12 @@ export class FormatErrorHandler {
    */
   private getFallbackFormat(format: SupportedFormat): SupportedFormat {
     const fallbacks: Record<SupportedFormat, SupportedFormat> = {
+      jxl: 'avif',
       avif: 'webp',
       webp: 'jpeg',
       jpeg: 'jpeg',
       png: 'png',
+      svg: 'svg',
     };
     
     return fallbacks[format];
@@ -302,6 +304,8 @@ export class FormatErrorHandler {
       png: 0,
       webp: 0,
       avif: 0,
+      svg: 0,
+      jxl: 0,
     };
 
     for (const [format, count] of this.errorCounts.entries()) {

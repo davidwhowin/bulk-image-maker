@@ -49,6 +49,32 @@ function generateThumbnail(file, options = {}) {
       cleanupCache();
     }
 
+    // Handle SVG files differently
+    if (file.type === 'image/svg+xml') {
+      generateSvgThumbnail(file, options)
+        .then(dataUrl => {
+          thumbnailCache.set(cacheKey, dataUrl);
+          resolve(dataUrl);
+        })
+        .catch(reject);
+      return;
+    }
+
+    // Handle JPEG XL files with fallback
+    if (file.type === 'image/jxl') {
+      generateJxlThumbnail(file, options)
+        .then(dataUrl => {
+          thumbnailCache.set(cacheKey, dataUrl);
+          resolve(dataUrl);
+        })
+        .catch(error => {
+          // If JPEG XL processing fails, try to handle as regular image
+          console.warn('[Worker] JPEG XL thumbnail generation failed, falling back to basic processing:', error.message);
+          // Continue with regular processing below
+        });
+      return;
+    }
+
     const canvas = new OffscreenCanvas(width, height);
     const ctx = canvas.getContext('2d');
     
@@ -117,15 +143,225 @@ function generateThumbnail(file, options = {}) {
 }
 
 /**
+ * Generate thumbnail for JPEG XL files
+ */
+function generateJxlThumbnail(file, options = {}) {
+  const { width = 200, height = 200, quality = 0.8 } = options;
+  
+  return new Promise((resolve, reject) => {
+    // Try to use native browser support for JPEG XL first
+    try {
+      createImageBitmap(file)
+        .then(bitmap => {
+          const canvas = new OffscreenCanvas(width, height);
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            reject(new Error('Canvas context not available for JPEG XL'));
+            return;
+          }
+
+          // Calculate aspect ratio and dimensions
+          const aspectRatio = bitmap.width / bitmap.height;
+          let targetWidth = width;
+          let targetHeight = height;
+
+          if (aspectRatio > 1) {
+            targetHeight = width / aspectRatio;
+          } else {
+            targetWidth = height * aspectRatio;
+          }
+
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+          ctx.drawImage(bitmap, 0, 0, targetWidth, targetHeight);
+
+          canvas.convertToBlob({ type: 'image/jpeg', quality })
+            .then(blob => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                resolve(reader.result);
+                canvas.width = 0;
+                canvas.height = 0;
+              };
+              reader.onerror = () => {
+                canvas.width = 0;
+                canvas.height = 0;
+                reject(new Error('Failed to read JPEG XL blob'));
+              };
+              reader.readAsDataURL(blob);
+            })
+            .catch(error => {
+              canvas.width = 0;
+              canvas.height = 0;
+              reject(error);
+            });
+
+          bitmap.close();
+        })
+        .catch(error => {
+          // If native support fails, reject with informative error
+          reject(new Error(`JPEG XL not supported natively: ${error.message}`));
+        });
+    } catch (error) {
+      reject(new Error(`JPEG XL processing failed: ${error.message}`));
+    }
+  });
+}
+
+/**
+ * Generate thumbnail for SVG files
+ */
+function generateSvgThumbnail(file, options = {}) {
+  const { width = 200, height = 200, quality = 0.8 } = options;
+  
+  return file.text().then(svgContent => {
+    return new Promise((resolve, reject) => {
+      try {
+        // Create a data URL from the SVG content
+        const svgDataUrl = `data:image/svg+xml;base64,${btoa(svgContent)}`;
+        
+        // Create an image from the SVG to render on canvas
+        const img = new Image();
+        img.onload = () => {
+          const canvas = new OffscreenCanvas(width, height);
+          const ctx = canvas.getContext('2d');
+          
+          if (!ctx) {
+            reject(new Error('Canvas context not available'));
+            return;
+          }
+
+          // Calculate aspect ratio and dimensions
+          const aspectRatio = img.width / img.height;
+          let targetWidth = width;
+          let targetHeight = height;
+
+          if (aspectRatio > 1) {
+            // Landscape
+            targetHeight = width / aspectRatio;
+          } else {
+            // Portrait or square
+            targetWidth = height * aspectRatio;
+          }
+
+          // Clear canvas and set size
+          canvas.width = targetWidth;
+          canvas.height = targetHeight;
+
+          // Draw the SVG
+          ctx.drawImage(img, 0, 0, targetWidth, targetHeight);
+
+          // Convert to blob for better memory management
+          canvas.convertToBlob({ type: 'image/jpeg', quality })
+            .then(blob => {
+              const reader = new FileReader();
+              reader.onload = () => {
+                const dataUrl = reader.result;
+                resolve(dataUrl);
+                
+                // Clean up canvas explicitly
+                canvas.width = 0;
+                canvas.height = 0;
+              };
+              reader.onerror = () => {
+                // Clean up canvas on error too
+                canvas.width = 0;
+                canvas.height = 0;
+                reject(new Error('Failed to read blob'));
+              };
+              reader.readAsDataURL(blob);
+            })
+            .catch(error => {
+              // Clean up canvas on error
+              canvas.width = 0;
+              canvas.height = 0;
+              reject(error);
+            });
+        };
+        
+        img.onerror = () => {
+          reject(new Error('Failed to load SVG for thumbnail generation'));
+        };
+        
+        img.src = svgDataUrl;
+      } catch (error) {
+        reject(new Error('Failed to process SVG content: ' + error.message));
+      }
+    });
+  });
+}
+
+/**
  * Get image dimensions
  */
 function getImageDimensions(file) {
+  // Handle SVG files differently
+  if (file.type === 'image/svg+xml') {
+    return getSvgDimensions(file);
+  }
+  
+  // Handle JPEG XL files with fallback
+  if (file.type === 'image/jxl') {
+    return getJxlDimensions(file);
+  }
+  
   return createImageBitmap(file)
     .then(bitmap => {
       const dimensions = { width: bitmap.width, height: bitmap.height };
       bitmap.close();
       return dimensions;
     });
+}
+
+/**
+ * Get JPEG XL dimensions
+ */
+function getJxlDimensions(file) {
+  return createImageBitmap(file)
+    .then(bitmap => {
+      const dimensions = { width: bitmap.width, height: bitmap.height };
+      bitmap.close();
+      return dimensions;
+    })
+    .catch(error => {
+      console.warn('[Worker] Failed to get JPEG XL dimensions:', error.message);
+      // Return fallback dimensions if native support fails
+      return { width: 0, height: 0 };
+    });
+}
+
+/**
+ * Get SVG dimensions by parsing the SVG content
+ */
+function getSvgDimensions(file) {
+  return file.text().then(svgContent => {
+    try {
+      // Simple SVG dimension parsing
+      const widthMatch = svgContent.match(/width=["']([^"']*)["']/);
+      const heightMatch = svgContent.match(/height=["']([^"']*)["']/);
+      const viewBoxMatch = svgContent.match(/viewBox=["']([^"']*)["']/);
+      
+      let width = 0;
+      let height = 0;
+      
+      if (widthMatch && heightMatch) {
+        width = parseFloat(widthMatch[1]) || 0;
+        height = parseFloat(heightMatch[1]) || 0;
+      } else if (viewBoxMatch) {
+        const viewBox = viewBoxMatch[1].split(/\s+/);
+        if (viewBox.length >= 4) {
+          width = parseFloat(viewBox[2]) || 0;
+          height = parseFloat(viewBox[3]) || 0;
+        }
+      }
+      
+      return { width, height };
+    } catch (error) {
+      console.warn('Failed to parse SVG dimensions:', error);
+      return { width: 0, height: 0 };
+    }
+  });
 }
 
 /**

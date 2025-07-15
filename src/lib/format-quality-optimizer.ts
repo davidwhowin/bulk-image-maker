@@ -35,6 +35,18 @@ export class FormatQualityOptimizer {
       recommended: 75,
       optimal: 80,
     },
+    svg: {
+      min: 1,
+      max: 100,
+      recommended: 85,
+      optimal: 90,
+    },
+    jxl: {
+      min: 1,
+      max: 100,
+      recommended: 70,
+      optimal: 75,
+    },
   };
 
   private performanceProfiles: Record<SupportedFormat, FormatPerformanceProfile> = {
@@ -61,6 +73,18 @@ export class FormatQualityOptimizer {
       compressionEfficiency: 'excellent',
       browserSupport: 70,
       estimatedProcessingTime: (fileSize) => fileSize / (1024 * 1024) * 500, // 500ms per MB
+    },
+    svg: {
+      encodingSpeed: 'fast',
+      compressionEfficiency: 'medium',
+      browserSupport: 100,
+      estimatedProcessingTime: (fileSize) => fileSize / (1024 * 1024) * 50, // 50ms per MB (text-based)
+    },
+    jxl: {
+      encodingSpeed: 'slow',
+      compressionEfficiency: 'excellent',
+      browserSupport: 30, // Limited browser support as of 2025
+      estimatedProcessingTime: (fileSize) => fileSize / (1024 * 1024) * 600, // 600ms per MB (complex encoding)
     },
   };
 
@@ -307,6 +331,8 @@ export class FormatQualityOptimizer {
       png: 0.7, // PNG compression is consistent
       webp: 0.08 + (quality / 100) * 0.32, // 8-40% of original
       avif: 0.06 + (quality / 100) * 0.24, // 6-30% of original
+      svg: 0.3 + (quality / 100) * 0.5, // 30-80% of original (depends on optimization level)
+      jxl: 0.04 + (quality / 100) * 0.20, // 4-24% of original (better than AVIF)
     };
     
     return Math.round(originalSize * compressionRatios[format]);
@@ -317,10 +343,12 @@ export class FormatQualityOptimizer {
    */
   private getFallbackFormat(format: SupportedFormat): SupportedFormat {
     const fallbacks: Record<SupportedFormat, SupportedFormat> = {
+      jxl: 'avif',
       avif: 'webp',
       webp: 'jpeg',
       jpeg: 'jpeg',
       png: 'png',
+      svg: 'svg',
     };
     
     return fallbacks[format];
