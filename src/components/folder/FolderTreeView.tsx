@@ -30,7 +30,7 @@ function FolderTreeNode({
     <div className="select-none">
       <div 
         className={`flex items-center py-1 px-2 hover:bg-gray-50 cursor-pointer rounded-sm ${
-          depth > 0 ? 'ml-' + (depth * 4) : ''
+          depth > 0 ? `ml-${  depth * 4}` : ''
         }`}
         onClick={handleToggle}
         style={{ paddingLeft: `${depth * 16 + 8}px` }}

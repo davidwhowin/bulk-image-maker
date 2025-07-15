@@ -1,12 +1,15 @@
 import { useCallback, useRef, useState } from 'react';
 import { cn, isSupportedImageType, formatFileSize } from '@/lib/utils';
 import { FolderProcessor } from '@/lib/folder-processor';
+import { UrlImportModal } from './UrlImportModal';
+import { useStore } from '@/store';
 import type {
   UserUploadAreaProps,
   UploadAreaState,
   UploadResult,
   UploadError,
   UploadValidationRules,
+  UrlImportRequest,
 } from '@/types';
 
 const DEFAULT_VALIDATION_RULES: UploadValidationRules = {
@@ -91,6 +94,9 @@ export function UserUploadArea({
     isProcessing: false,
     errors: [],
   });
+
+  const [showUrlImport, setShowUrlImport] = useState(false);
+  const { importFromUrls, isImporting } = useStore();
 
   const rules = { ...DEFAULT_VALIDATION_RULES, ...validationRules };
 
@@ -314,6 +320,62 @@ export function UserUploadArea({
     [disabled]
   );
 
+  const handleUrlImport = useCallback(
+    async (urls: string[]) => {
+      try {
+        const request: UrlImportRequest = {
+          urls,
+          options: {
+            maxConcurrent: 3,
+            timeout: 30000, // 30 seconds
+            validateImageType: true,
+            maxFileSize: rules.maxFileSize,
+          },
+        };
+
+        const result = await importFromUrls(request);
+        
+        // Show results to user
+        if (result.failed.length > 0) {
+          setState(prev => ({
+            ...prev,
+            errors: result.failed.map(failure => ({
+              fileName: failure.url,
+              message: failure.error,
+              type: 'processing' as const,
+            })),
+          }));
+        }
+
+        // Close modal after successful import
+        if (result.successful.length > 0) {
+          setShowUrlImport(false);
+          
+          // Show success message
+          setState(prev => ({
+            ...prev,
+            lastUploadResult: {
+              validFiles: result.successful.map(s => s.file),
+              errors: prev.errors,
+              totalSize: result.successful.reduce((sum, s) => sum + s.size, 0),
+              fileCount: result.successful.length,
+            },
+          }));
+        }
+      } catch (error) {
+        setState(prev => ({
+          ...prev,
+          errors: [{
+            fileName: 'URL Import',
+            message: error instanceof Error ? error.message : 'Failed to import from URLs',
+            type: 'processing',
+          }],
+        }));
+      }
+    },
+    [importFromUrls, rules.maxFileSize]
+  );
+
   const handleDrop = useCallback(
     async (e: React.DragEvent) => {
       e.preventDefault();
@@ -327,6 +389,24 @@ export function UserUploadArea({
         isDragActive: false,
         dragCounter: 0,
       }));
+
+      // Check for text data (URLs) first
+      const textData = e.dataTransfer.getData('text/plain');
+      if (textData) {
+        // Check if it's an image URL or contains image URLs
+        const { validateImageUrl } = await import('@/lib/url-import');
+        const urls = textData
+          .split(/[\n\r\s,]+/)
+          .map(url => url.trim())
+          .filter(url => url.length > 0 && (url.startsWith('http://') || url.startsWith('https://')))
+          .filter(url => validateImageUrl(url));
+
+        if (urls.length > 0) {
+          // Import from URLs
+          handleUrlImport(urls);
+          return;
+        }
+      }
 
       // Handle folder drops using DataTransferItemList API
       if (e.dataTransfer.items) {
@@ -385,7 +465,7 @@ export function UserUploadArea({
         handleFileSelection(files);
       }
     },
-    [disabled, handleFileSelection, rules.allowFolders]
+    [disabled, handleFileSelection, handleUrlImport, rules.allowFolders]
   );
 
   const handleInputChange = useCallback(
@@ -410,17 +490,12 @@ export function UserUploadArea({
     folderInputRef.current?.click();
   }, [disabled, state.isProcessing, rules.allowFolders]);
 
-  const handleKeyDown = useCallback(
-    (e: React.KeyboardEvent) => {
-      if (disabled || state.isProcessing) return;
-      
-      if (e.key === 'Enter' || e.key === ' ') {
-        e.preventDefault();
-        handleClick();
-      }
-    },
-    [disabled, state.isProcessing, handleClick]
-  );
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleClick();
+    }
+  }, [handleClick]);
 
   return (
     <div
@@ -498,19 +573,71 @@ export function UserUploadArea({
               <p className="text-lg font-medium text-gray-900">
                 {state.isProcessing
                   ? 'Processing files...'
+                  : isImporting
+                  ? 'Importing from URLs...'
                   : state.isDragOver
-                  ? 'Drop files here'
+                  ? 'Drop files, folders, or image URLs here'
                   : 'Drop images here or click to browse'}
               </p>
               
               <p className="text-sm text-gray-600">
-                Supports JPEG, PNG, WebP, AVIF, and GIF files
+                Supports JPEG, PNG, WebP, AVIF, and GIF files • Drag image URLs from web
                 {rules.maxFileSize && (
                   <> • Max {formatFileSize(rules.maxFileSize)} per file</>
                 )}
                 {rules.maxFiles && <> • Up to {rules.maxFiles} files</>}
               </p>
 
+              <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-center justify-center">
+                {rules.allowFolders && (
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleFolderClick();
+                    }}
+                    disabled={disabled || state.isProcessing}
+                    className="text-sm text-primary-600 hover:text-primary-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    Upload a folder
+                  </button>
+                )}
+                
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowUrlImport(true);
+                  }}
+                  disabled={disabled || state.isProcessing || isImporting}
+                  className="text-sm text-primary-600 hover:text-primary-700 underline disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                  </svg>
+                  Import from URLs
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* Always show URL import button when files exist but showFileCount is false */}
+        {!showFileCount && state.lastUploadResult && state.lastUploadResult.fileCount > 0 && (
+          <div className="mt-4">
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-center justify-center">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleClick();
+                }}
+                disabled={disabled || state.isProcessing}
+                className="text-sm text-primary-600 hover:text-primary-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Add more files
+              </button>
+              
               {rules.allowFolders && (
                 <button
                   type="button"
@@ -521,11 +648,26 @@ export function UserUploadArea({
                   disabled={disabled || state.isProcessing}
                   className="text-sm text-primary-600 hover:text-primary-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
                 >
-                  Or upload a folder
+                  Add folder
                 </button>
               )}
+              
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowUrlImport(true);
+                }}
+                disabled={disabled || state.isProcessing || isImporting}
+                className="text-sm text-primary-600 hover:text-primary-700 underline disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+                Import from URLs
+              </button>
             </div>
-          </>
+          </div>
         )}
 
         {/* Progress indicator */}
@@ -540,13 +682,59 @@ export function UserUploadArea({
 
         {/* File count display */}
         {showFileCount && state.lastUploadResult && (
-          <div className="mt-4 text-sm text-gray-600">
+          <div className="mt-4 space-y-3">
             {state.lastUploadResult.fileCount > 0 && (
-              <span>
-                {state.lastUploadResult.fileCount} file{state.lastUploadResult.fileCount !== 1 ? 's' : ''} selected
-                ({formatFileSize(state.lastUploadResult.totalSize)})
-              </span>
+              <div className="text-sm text-gray-600">
+                <span>
+                  {state.lastUploadResult.fileCount} file{state.lastUploadResult.fileCount !== 1 ? 's' : ''} selected
+                  ({formatFileSize(state.lastUploadResult.totalSize)})
+                </span>
+              </div>
             )}
+            
+            {/* Add more files buttons */}
+            <div className="flex flex-col sm:flex-row gap-2 sm:gap-4 items-center justify-center">
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleClick();
+                }}
+                disabled={disabled || state.isProcessing}
+                className="text-sm text-primary-600 hover:text-primary-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Add more files
+              </button>
+              
+              {rules.allowFolders && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleFolderClick();
+                  }}
+                  disabled={disabled || state.isProcessing}
+                  className="text-sm text-primary-600 hover:text-primary-700 underline disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Add folder
+                </button>
+              )}
+              
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowUrlImport(true);
+                }}
+                disabled={disabled || state.isProcessing || isImporting}
+                className="text-sm text-primary-600 hover:text-primary-700 underline disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1" />
+                </svg>
+                Import from URLs
+              </button>
+            </div>
           </div>
         )}
 
@@ -574,6 +762,14 @@ export function UserUploadArea({
           </div>
         )}
       </div>
+
+      {/* URL Import Modal */}
+      <UrlImportModal
+        isOpen={showUrlImport}
+        onClose={() => setShowUrlImport(false)}
+        onImport={handleUrlImport}
+        isImporting={isImporting}
+      />
     </div>
   );
 }

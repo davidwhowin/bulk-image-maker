@@ -10,6 +10,7 @@ export function useImageProcessor() {
     isProcessing, 
     setIsProcessing, 
     updateFileStatus, 
+    updateFileWithCompressedResult,
     updateProcessingStats,
     resetStats 
   } = useStore();
@@ -64,6 +65,31 @@ export function useImageProcessor() {
 
       const handleComplete = (processingResults: ProcessingResult[]) => {
         results.push(...processingResults);
+        
+        // Store compressed results for each file
+        processingResults.forEach(result => {
+          // Create object URL for compressed image preview
+          const compressedPreview = URL.createObjectURL(result.processedBlob);
+          
+          // Use actualFormat from processing result, or determine from blob type, with fallback to settings
+          let actualFormat = result.actualFormat || result.processedBlob.type.replace('image/', '');
+          
+          // If still no format, try to determine from settings
+          if (!actualFormat || actualFormat === 'octet-stream') {
+            actualFormat = compressionSettings.format;
+          }
+          
+          
+          
+          updateFileWithCompressedResult(result.fileId, {
+            blob: result.processedBlob,
+            size: result.compressedSize,
+            format: actualFormat,
+            quality: compressionSettings.quality / 100, // Convert to 0-1 range
+            compressionRatio: result.compressionRatio,
+            preview: compressedPreview
+          });
+        });
         
         // Calculate final stats
         totalCompressedSize = results.reduce((sum, result) => sum + result.compressedSize, 0);
@@ -126,6 +152,7 @@ export function useImageProcessor() {
     isProcessing, 
     setIsProcessing, 
     updateFileStatus, 
+    updateFileWithCompressedResult,
     updateProcessingStats, 
     resetStats
   ]);

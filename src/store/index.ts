@@ -1,7 +1,19 @@
 import { create } from 'zustand';
 import { devtools, subscribeWithSelector } from 'zustand/middleware';
 import { MemoryManager } from '@/lib/performance-utils';
-import type { ImageFile, CompressionSettings, ProcessingStats } from '@/types';
+import type { 
+  ImageFile, 
+  CompressionSettings, 
+  ProcessingStats,
+  FileFilter,
+  FilterState,
+  SelectionState,
+  DuplicateDetectionSettings,
+  DuplicateDetectionResult,
+  ClipboardImportResult,
+  UrlImportRequest,
+  UrlImportResult
+} from '@/types';
 import type { FolderUploadResult } from '@/types/folder';
 
 export interface FolderPreservationSettings {
@@ -23,6 +35,18 @@ interface AppState {
     error?: string
   ) => void;
 
+  updateFileWithCompressedResult: (
+    id: string,
+    compressedData: {
+      blob: Blob;
+      size: number;
+      format: string;
+      quality: number;
+      compressionRatio: number;
+      preview?: string;
+    }
+  ) => void;
+
   // Settings
   compressionSettings: CompressionSettings;
   updateCompressionSettings: (settings: Partial<CompressionSettings>) => void;
@@ -39,10 +63,41 @@ interface AppState {
   // Folder structure
   folderStructure?: FolderUploadResult;
   setFolderStructure: (structure: FolderUploadResult | undefined) => void;
+
+  // Filtering and Organization
+  filterState: FilterState;
+  updateFilter: (filter: Partial<FileFilter>) => void;
+  clearFilters: () => void;
+  applyFilters: () => void;
+
+  // Selection Management
+  selectionState: SelectionState;
+  toggleFileSelection: (fileId: string) => void;
+  selectAll: () => void;
+  deselectAll: () => void;
+  selectFiltered: () => void;
+  invertSelection: () => void;
+  removeSelected: () => void;
+  setSelectionMode: (enabled: boolean) => void;
+
+  // Duplicate Detection
+  duplicateSettings: DuplicateDetectionSettings;
+  duplicateResults?: DuplicateDetectionResult;
+  updateDuplicateSettings: (settings: Partial<DuplicateDetectionSettings>) => void;
+  detectDuplicates: () => Promise<void>;
+  resolveDuplicate: (groupId: string, keepFileId: string) => void;
+
+  // Clipboard Support
+  importFromClipboard: () => Promise<ClipboardImportResult>;
+
+  // URL Import
+  importFromUrls: (request: UrlImportRequest) => Promise<UrlImportResult>;
+  isImporting: boolean;
+  setIsImporting: (importing: boolean) => void;
 }
 
 const defaultCompressionSettings: CompressionSettings = {
-  format: 'webp',
+  format: 'auto', // Preserve original format by default
   quality: 75,
   effort: 4,
   stripMetadata: true,
@@ -62,6 +117,28 @@ const defaultStats: ProcessingStats = {
   totalCompressedSize: 0,
   compressionRatio: 0,
   processingTime: 0,
+};
+
+const defaultFilterState: FilterState = {
+  activeFilters: {},
+  filteredFiles: [],
+  totalFiles: 0,
+  isFiltering: false,
+};
+
+const defaultSelectionState: SelectionState = {
+  selectedFiles: new Set(),
+  isAllSelected: false,
+  isSelectionMode: false,
+  selectionCount: 0,
+};
+
+const defaultDuplicateSettings: DuplicateDetectionSettings = {
+  enabled: false,
+  compareBy: 'hash',
+  threshold: 0.95,
+  autoRemove: false,
+  keepPolicy: 'first',
 };
 
 export const useStore = create<AppState>()(
@@ -130,6 +207,18 @@ export const useStore = create<AppState>()(
           ),
         })),
 
+      updateFileWithCompressedResult: (id, compressedData) =>
+        set((state) => ({
+          files: state.files.map((f) =>
+            f.id === id ? { 
+              ...f, 
+              status: 'completed' as const,
+              progress: 100,
+              compressed: compressedData
+            } : f
+          ),
+        })),
+
       // Settings
       compressionSettings: defaultCompressionSettings,
       updateCompressionSettings: (settings) =>
@@ -155,6 +244,228 @@ export const useStore = create<AppState>()(
       // Folder structure
       folderStructure: undefined,
       setFolderStructure: (structure) => set({ folderStructure: structure }),
+
+      // Filtering and Organization
+      filterState: defaultFilterState,
+      updateFilter: (filter) =>
+        set((state) => ({
+          filterState: {
+            ...state.filterState,
+            activeFilters: { ...state.filterState.activeFilters, ...filter },
+          },
+        })),
+      clearFilters: () =>
+        set((state) => ({
+          filterState: {
+            ...defaultFilterState,
+            totalFiles: state.files.length,
+            filteredFiles: state.files,
+          },
+        })),
+      applyFilters: () =>
+        set((state) => {
+          // TODO: Implement filtering logic
+          return {
+            filterState: {
+              ...state.filterState,
+              filteredFiles: state.files,
+              isFiltering: false,
+            },
+          };
+        }),
+
+      // Selection Management
+      selectionState: defaultSelectionState,
+      toggleFileSelection: (fileId) =>
+        set((state) => {
+          const newSelected = new Set(state.selectionState.selectedFiles);
+          if (newSelected.has(fileId)) {
+            newSelected.delete(fileId);
+          } else {
+            newSelected.add(fileId);
+          }
+          return {
+            selectionState: {
+              ...state.selectionState,
+              selectedFiles: newSelected,
+              selectionCount: newSelected.size,
+              isAllSelected: newSelected.size === state.files.length,
+            },
+          };
+        }),
+      selectAll: () =>
+        set((state) => ({
+          selectionState: {
+            ...state.selectionState,
+            selectedFiles: new Set(state.files.map(f => f.id)),
+            selectionCount: state.files.length,
+            isAllSelected: true,
+          },
+        })),
+      deselectAll: () =>
+        set((state) => ({
+          selectionState: {
+            ...state.selectionState,
+            selectedFiles: new Set(),
+            selectionCount: 0,
+            isAllSelected: false,
+          },
+        })),
+      selectFiltered: () =>
+        set((state) => {
+          const filteredIds = new Set<string>(state.filterState.filteredFiles.map(f => f.id));
+          return {
+            selectionState: {
+              ...state.selectionState,
+              selectedFiles: filteredIds,
+              selectionCount: filteredIds.size,
+              isAllSelected: filteredIds.size === state.files.length,
+            },
+          };
+        }),
+      invertSelection: () =>
+        set((state) => {
+          const allIds = new Set(state.files.map(f => f.id));
+          const currentSelected = state.selectionState.selectedFiles;
+          const newSelected = new Set<string>();
+          
+          allIds.forEach(id => {
+            if (!currentSelected.has(id)) {
+              newSelected.add(id);
+            }
+          });
+          
+          return {
+            selectionState: {
+              ...state.selectionState,
+              selectedFiles: newSelected,
+              selectionCount: newSelected.size,
+              isAllSelected: newSelected.size === state.files.length,
+            },
+          };
+        }),
+      removeSelected: () =>
+        set((state) => {
+          const selectedIds = state.selectionState.selectedFiles;
+          const remainingFiles = state.files.filter(f => !selectedIds.has(f.id));
+          
+          // Clean up memory
+          selectedIds.forEach(id => {
+            const file = state.files.find(f => f.id === id);
+            if (file?.file) {
+              try {
+                const memoryManager = MemoryManager.getInstance();
+                memoryManager.forceGarbageCollection();
+              } catch (error) {
+                console.warn('Error during file cleanup:', error);
+              }
+            }
+          });
+          
+          return {
+            files: remainingFiles,
+            selectionState: defaultSelectionState,
+            filterState: {
+              ...state.filterState,
+              filteredFiles: remainingFiles,
+              totalFiles: remainingFiles.length,
+            },
+          };
+        }),
+      setSelectionMode: (enabled) =>
+        set((state) => ({
+          selectionState: {
+            ...state.selectionState,
+            isSelectionMode: enabled,
+            selectedFiles: enabled ? state.selectionState.selectedFiles : new Set(),
+            selectionCount: enabled ? state.selectionState.selectionCount : 0,
+            isAllSelected: enabled ? state.selectionState.isAllSelected : false,
+          },
+        })),
+
+      // Duplicate Detection
+      duplicateSettings: defaultDuplicateSettings,
+      duplicateResults: undefined,
+      updateDuplicateSettings: (settings) =>
+        set((state) => ({
+          duplicateSettings: { ...state.duplicateSettings, ...settings },
+        })),
+      detectDuplicates: async () => {
+        // TODO: Implement duplicate detection
+        set((state) => ({
+          duplicateResults: {
+            duplicateGroups: [],
+            duplicateCount: 0,
+            uniqueFiles: state.files,
+            processingTime: 0,
+          },
+        }));
+      },
+      resolveDuplicate: (_groupId, _keepFileId) => {
+        // TODO: Implement duplicate resolution
+        set((state) => state);
+      },
+
+      // Clipboard Support
+      importFromClipboard: async () => {
+        // TODO: Implement clipboard import
+        return {
+          files: [],
+          errors: [],
+          fromClipboard: true,
+        };
+      },
+
+      // URL Import
+      importFromUrls: async (request) => {
+        set({ isImporting: true });
+        
+        try {
+          const { BulkUrlImporter } = await import('@/lib/url-import');
+          const importer = new BulkUrlImporter();
+          const result = await importer.importFromUrls(request);
+          
+          // Add successful imports to files
+          if (result.successful.length > 0) {
+            const newFiles = result.successful.map(success => success.file);
+            set((state) => {
+              const imageFiles = newFiles.map((file, index) => ({
+                id: `url-${Date.now()}-${Math.random()}-${index}`,
+                file,
+                name: file.name,
+                size: file.size,
+                type: file.type,
+                status: 'pending' as const,
+                progress: 0,
+                sourceUrl: result.successful[index].url,
+                importedAt: new Date(),
+              }));
+              
+              return {
+                files: [...state.files, ...imageFiles],
+              };
+            });
+          }
+          
+          set({ isImporting: false });
+          return result;
+        } catch (error) {
+          set({ isImporting: false });
+          return {
+            successful: [],
+            failed: request.urls.map(url => ({
+              url,
+              error: error instanceof Error ? error.message : 'Import failed',
+            })),
+            totalRequested: request.urls.length,
+            totalSuccessful: 0,
+            totalFailed: request.urls.length,
+            processingTime: 0,
+          };
+        }
+      },
+      isImporting: false,
+      setIsImporting: (importing) => set({ isImporting: importing }),
     }))
   )
 );

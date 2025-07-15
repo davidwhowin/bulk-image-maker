@@ -1,17 +1,45 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { useStore } from '@/store';
 import { formatFileSize } from '@/lib/utils';
 import { createStructuredZip } from '@/lib/folder-structure-preservation';
 import type { ImageFileWithPath } from '@/types/folder';
 
+// Helper component for displaying images with proper URL management
+function ImageDisplay({ file, alt, className }: { file: File; alt: string; className?: string }) {
+  const [imageUrl, setImageUrl] = useState<string>('');
+
+  useEffect(() => {
+    const url = URL.createObjectURL(file);
+    setImageUrl(url);
+
+    return () => {
+      URL.revokeObjectURL(url);
+    };
+  }, [file]);
+
+  return (
+    <img
+      src={imageUrl}
+      alt={alt}
+      className={className}
+      onError={() => {
+        console.warn('Failed to load image:', alt);
+      }}
+    />
+  );
+}
+
 export function ProcessingResults() {
   const { files, processingStats, folderSettings } = useStore();
   const [isDownloading, setIsDownloading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [view, setView] = useState<'results' | 'comparison'>('results');
+  
 
   // Filter completed files
   const completedFiles = files.filter(file => file.status === 'completed');
   const hasCompletedFiles = completedFiles.length > 0;
+
 
   const downloadProcessedFiles = useCallback(async () => {
     if (!hasCompletedFiles || isDownloading) return;
@@ -149,6 +177,32 @@ export function ProcessingResults() {
         </div>
       </div>
 
+      {/* View Toggle */}
+      <div className="flex items-center justify-center mb-6">
+        <div className="bg-white rounded-lg p-1 border border-gray-200">
+          <button
+            onClick={() => setView('results')}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+              view === 'results'
+                ? 'bg-primary-600 text-white'
+                : 'text-gray-700 hover:text-gray-900'
+            }`}
+          >
+            📊 Results Summary
+          </button>
+          <button
+            onClick={() => setView('comparison')}
+            className={`px-4 py-2 text-sm font-medium rounded-md transition-colors ${
+              view === 'comparison'
+                ? 'bg-primary-600 text-white'
+                : 'text-gray-700 hover:text-gray-900'
+            }`}
+          >
+            🔍 Before/After Comparison
+          </button>
+        </div>
+      </div>
+
       {/* Error Display */}
       {error && (
         <div className="mt-4 p-3 bg-red-50 border border-red-200 rounded-md">
@@ -156,7 +210,10 @@ export function ProcessingResults() {
         </div>
       )}
 
-      {/* Download Actions */}
+      {/* Results View */}
+      {view === 'results' && (
+        <>
+          {/* Download Actions */}
       <div className="flex flex-col sm:flex-row gap-3">
         <button
           onClick={downloadProcessedFiles}
@@ -203,6 +260,146 @@ export function ProcessingResults() {
                 {file.name}
               </button>
             ))}
+          </div>
+        </div>
+      )}
+        </>
+      )}
+
+      {/* Comparison View */}
+      {view === 'comparison' && (
+        <div className="bg-white rounded-lg border border-gray-200 overflow-hidden">
+          <div className="p-4 border-b border-gray-200 bg-gray-50">
+            <h3 className="text-lg font-medium text-gray-900 mb-2">
+              Before/After Comparison
+            </h3>
+            <p className="text-sm text-gray-600">
+              Compare original and compressed images side-by-side with compression metrics.
+            </p>
+          </div>
+          
+          <div className="p-6 max-h-[600px] overflow-y-auto">
+            {completedFiles.length === 0 ? (
+              <div className="text-center py-12">
+                <div className="text-gray-500">No processed files to compare</div>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                {completedFiles.map(file => (
+                  <div key={file.id} className="border border-gray-200 rounded-lg overflow-hidden">
+                    <div className="bg-gray-50 px-4 py-2 border-b">
+                      <h4 className="font-medium text-gray-900">{file.name}</h4>
+                    </div>
+                    
+                    <div className="p-4">
+                      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                        {/* Original Image */}
+                        <div>
+                          <h5 className="text-sm font-medium text-gray-700 mb-2">Original</h5>
+                          <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                            {file.preview ? (
+                              <img
+                                src={file.preview}
+                                alt={`Original ${file.name}`}
+                                className="w-full h-48 object-contain"
+                              />
+                            ) : (
+                              <ImageDisplay
+                                file={file.file}
+                                alt={`Original ${file.name}`}
+                                className="w-full h-48 object-contain"
+                              />
+                            )}
+                          </div>
+                          <div className="mt-2 text-sm text-gray-600">
+                            <div>Size: {formatFileSize(file.size)}</div>
+                            <div>Format: {file.type.replace('image/', '').toUpperCase()}</div>
+                          </div>
+                        </div>
+
+                        {/* Compressed Image */}
+                        <div>
+                          <h5 className="text-sm font-medium text-gray-700 mb-2">Compressed</h5>
+                          <div className="border border-gray-200 rounded-lg overflow-hidden bg-gray-50">
+                            {file.compressed ? (
+                              <img
+                                src={file.compressed.preview || URL.createObjectURL(file.compressed.blob)}
+                                alt={`Compressed ${file.name}`}
+                                className="w-full h-48 object-contain"
+                                onError={(e) => {
+                                  console.warn('Failed to load compressed image:', file.name);
+                                  e.currentTarget.style.display = 'none';
+                                }}
+                              />
+                            ) : (
+                              <div className="w-full h-48 flex items-center justify-center text-gray-500">
+                                <div className="text-center">
+                                  <svg className="w-12 h-12 mx-auto mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M12 8v4m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                                  </svg>
+                                  <div>Processing...</div>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                          <div className="mt-2 text-sm text-gray-600">
+                            <div>Size: {formatFileSize(file.compressed?.size || file.size)}</div>
+                            <div>Format: {file.compressed?.format?.toUpperCase() || file.type.replace('image/', '').toUpperCase()}</div>
+                            {file.compressed?.quality && (
+                              <div>Quality: {Math.round(file.compressed.quality * 100)}%</div>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Compression Stats */}
+                      {file.compressed && (
+                        <div className="mt-4 pt-4 border-t border-gray-200">
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                            <div className="text-center p-3 bg-green-50 rounded-lg">
+                              <div className="font-medium text-green-800">
+                                {(((file.size - file.compressed.size) / file.size) * 100).toFixed(1)}%
+                              </div>
+                              <div className="text-green-600">Size Reduction</div>
+                            </div>
+                            <div className="text-center p-3 bg-blue-50 rounded-lg">
+                              <div className="font-medium text-blue-800">
+                                {formatFileSize(file.size - file.compressed.size)}
+                              </div>
+                              <div className="text-blue-600">Space Saved</div>
+                            </div>
+                            <div className="text-center p-3 bg-purple-50 rounded-lg">
+                              <div className="font-medium text-purple-800">
+                                {(file.compressed.size / file.size).toFixed(2)}x
+                              </div>
+                              <div className="text-purple-600">Compression Ratio</div>
+                            </div>
+                            <div className="text-center p-3 bg-gray-50 rounded-lg">
+                              <div className="font-medium text-gray-800">
+                                {(() => {
+                                  const originalFormat = file.type.replace('image/', '').toUpperCase();
+                                  const compressedFormat = file.compressed.format.toUpperCase();
+                                  const formatChanged = originalFormat !== compressedFormat;
+                                  
+                                  return formatChanged 
+                                    ? `${originalFormat} → ${compressedFormat}`
+                                    : `${originalFormat} (unchanged)`;
+                                })()}
+                              </div>
+                              <div className="text-gray-600">
+                                {file.type.replace('image/', '').toUpperCase() === file.compressed.format.toUpperCase() 
+                                  ? 'Format Preserved' 
+                                  : 'Format Changed'}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

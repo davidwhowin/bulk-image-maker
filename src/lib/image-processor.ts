@@ -22,6 +22,7 @@ export interface ProcessingResult {
   compressedSize: number;
   compressionRatio: number;
   processingTime: number;
+  actualFormat?: string;
 }
 
 export class ImageProcessor {
@@ -82,7 +83,8 @@ export class ImageProcessor {
             originalSize: file.size,
             compressedSize: result.blob.size,
             compressionRatio: ((file.size - result.blob.size) / file.size) * 100,
-            processingTime
+            processingTime,
+            actualFormat: result.actualFormat
           };
 
           results.push(processedResult);
@@ -124,7 +126,7 @@ export class ImageProcessor {
     file: ImageFile,
     settings: CompressionSettings,
     onProgress?: (progress: number) => void
-  ): Promise<{ blob: Blob }> {
+  ): Promise<{ blob: Blob; actualFormat: string }> {
     
     return new Promise((resolve, reject) => {
       const canvas = document.createElement('canvas');
@@ -151,15 +153,24 @@ export class ImageProcessor {
 
           onProgress?.(75);
 
-          // Convert to desired format with quality setting
-          const outputFormat = this.getOutputMimeType(settings.format);
+          // Determine output format - use original format if settings.format is 'auto'
+          let outputFormat: string;
+          const originalFormat = file.type;
+          
+          if (settings.format === 'auto') {
+            outputFormat = originalFormat;
+          } else {
+            outputFormat = this.getOutputMimeType(settings.format);
+          }
+          
           const quality = settings.quality / 100; // Convert to 0-1 range
 
           canvas.toBlob(
             (blob) => {
               if (blob) {
                 onProgress?.(100);
-                resolve({ blob });
+                const actualFormat = blob.type.replace('image/', '') || outputFormat.replace('image/', '');
+                resolve({ blob, actualFormat });
               } else {
                 reject(new Error('Failed to create blob'));
               }
@@ -194,6 +205,8 @@ export class ImageProcessor {
 
   private getOutputMimeType(format: string): string {
     switch (format) {
+      case 'auto':
+        return 'auto'; // Special case - will be handled by caller
       case 'webp':
         return 'image/webp';
       case 'jpeg':
