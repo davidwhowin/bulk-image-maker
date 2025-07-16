@@ -37,6 +37,8 @@ export interface CompressionSettings {
   effort: number;
   resize?: ResizeSettings;
   stripMetadata: boolean;
+  progressive?: boolean; // For JPEG progressive loading
+  preserveAlpha?: boolean; // For PNG/WebP transparency
 }
 
 export interface ResizeSettings {

@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { UserUploadArea } from '@/components';
 import { FolderStructureSettings, FolderTreeView } from '@/components/folder';
-import { CompressionSettings } from '@/components/compression';
+import { ImageProcessingSettings } from '@/components/processing/ImageProcessingSettings';
 import { useStore } from '@/store';
 import { useImageProcessor } from '@/hooks/useImageProcessor';
 import { FilePreviewGrid } from './FilePreviewGrid';
@@ -19,7 +19,7 @@ export function UploadWorkflow() {
       if (result.validFiles.length > 0) {
         addFiles(result.validFiles, result.folderResult);
       }
-    } catch (err) {
+    } catch {
       setError('Error processing files');
     }
   }, [addFiles]);
@@ -85,8 +85,8 @@ export function UploadWorkflow() {
         </div>
       )}
 
-      {/* Compression Settings - Show when files are uploaded */}
-      {hasFiles && <CompressionSettings />}
+      {/* Image Processing Settings - Show when files are uploaded */}
+      {hasFiles && <ImageProcessingSettings />}
 
       {/* Folder Structure Settings */}
       <FolderStructureSettings />
@@ -107,7 +107,7 @@ export function UploadWorkflow() {
       {hasFiles && (
         <div className="flex justify-center gap-4">
           <button
-            onClick={handleProcessFiles}
+            onClick={() => void handleProcessFiles()}
             disabled={!canProcess}
             className="btn-primary disabled:opacity-50 disabled:cursor-not-allowed"
           >
