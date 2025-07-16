@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react';
 import { useStore } from '@/store';
+import { useAuthStore } from '@/lib/auth-store';
 import { imageProcessor, type ProcessingProgress, type ProcessingResult } from '@/lib/image-processor';
 import { performanceMonitor } from '@/lib/performance-utils';
 
@@ -15,6 +16,7 @@ export function useImageProcessor() {
     resetStats 
   } = useStore();
   
+  const { isAuthenticated, updateUsageStats, checkFileUploadLimits } = useAuthStore();
   const processingStartTime = useRef<number>(0);
 
   const processFiles = useCallback(async () => {
@@ -26,6 +28,21 @@ export function useImageProcessor() {
     if (isProcessing) {
       console.warn('Processing already in progress');
       return;
+    }
+
+    // Check tier limits before processing if user is authenticated
+    if (isAuthenticated) {
+      try {
+        const limitCheck = await checkFileUploadLimits(files.map(f => f.file));
+        if (!limitCheck.canProcess) {
+          console.warn('Processing blocked by tier limits:', limitCheck.message);
+          alert(limitCheck.message); // Show user-friendly message
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to check tier limits:', error);
+        // Continue processing for now, but log the error
+      }
     }
 
     try {
@@ -63,7 +80,7 @@ export function useImageProcessor() {
         console.log(`File ${progress.fileId}: ${progress.status} - ${progress.progress}%`);
       };
 
-      const handleComplete = (processingResults: ProcessingResult[]) => {
+      const handleComplete = async (processingResults: ProcessingResult[]) => {
         results.push(...processingResults);
         
         // Store compressed results for each file
@@ -110,6 +127,21 @@ export function useImageProcessor() {
 
         console.log(`Processing complete! ${results.length} files processed`);
         console.log(`Total size reduction: ${totalOriginalSize} → ${totalCompressedSize} bytes (${overallCompressionRatio.toFixed(1)}% reduction)`);
+        
+        // Track usage in database if user is authenticated
+        if (isAuthenticated && results.length > 0) {
+          try {
+            console.log('Updating usage stats:', {
+              imageCount: results.length,
+              storageUsed: totalOriginalSize
+            });
+            await updateUsageStats(results.length, totalOriginalSize);
+            console.log('Usage stats updated successfully');
+          } catch (error) {
+            console.error('Failed to update usage stats:', error);
+            // Don't fail the whole operation for this
+          }
+        }
       };
 
 
@@ -129,7 +161,12 @@ export function useImageProcessor() {
             updateProcessingStats({ failedFiles: failedCount });
           }
         },
-        handleComplete
+        (results) => {
+          // Call the async handleComplete function
+          handleComplete(results).catch(error => {
+            console.error('Error in handleComplete:', error);
+          });
+        }
       );
 
       await performanceMonitor.measureThumbnailGeneration(processingOperation);
@@ -154,7 +191,10 @@ export function useImageProcessor() {
     updateFileStatus, 
     updateFileWithCompressedResult,
     updateProcessingStats, 
-    resetStats
+    resetStats,
+    isAuthenticated,
+    updateUsageStats,
+    checkFileUploadLimits
   ]);
 
   const abortProcessing = useCallback(() => {

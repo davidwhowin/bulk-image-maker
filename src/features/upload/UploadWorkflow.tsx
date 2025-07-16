@@ -1,6 +1,7 @@
 import { useCallback, useState } from 'react';
 import { UserUploadArea } from '@/components';
 import { FolderStructureSettings, FolderTreeView } from '@/components/folder';
+import { CompressionSettings } from '@/components/compression';
 import { useStore } from '@/store';
 import { useImageProcessor } from '@/hooks/useImageProcessor';
 import { FilePreviewGrid } from './FilePreviewGrid';
@@ -83,6 +84,9 @@ export function UploadWorkflow() {
           <div className="text-sm text-red-700">{error}</div>
         </div>
       )}
+
+      {/* Compression Settings - Show when files are uploaded */}
+      {hasFiles && <CompressionSettings />}
 
       {/* Folder Structure Settings */}
       <FolderStructureSettings />

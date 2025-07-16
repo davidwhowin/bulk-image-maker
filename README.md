@@ -1,146 +1,183 @@
-# Bulk Image Optimizer
+# Supabase CLI
 
-A modern, browser-based bulk image compression and optimization tool inspired by Google's Squoosh.app, but with the ability to process multiple images simultaneously.
+[![Coverage Status](https://coveralls.io/repos/github/supabase/cli/badge.svg?branch=main)](https://coveralls.io/github/supabase/cli?branch=main) [![Bitbucket Pipelines](https://img.shields.io/bitbucket/pipelines/supabase-cli/setup-cli/master?style=flat-square&label=Bitbucket%20Canary)](https://bitbucket.org/supabase-cli/setup-cli/pipelines) [![Gitlab Pipeline Status](https://img.shields.io/gitlab/pipeline-status/sweatybridge%2Fsetup-cli?label=Gitlab%20Canary)
+](https://gitlab.com/sweatybridge/setup-cli/-/pipelines)
 
-## 🚀 Features
+[Supabase](https://supabase.io) is an open source Firebase alternative. We're building the features of Firebase using enterprise-grade open source tools.
 
-- **Bulk Processing**: Process hundreds of images efficiently
-- **Multiple Formats**: Support for JPEG, PNG, WebP, AVIF, and more
-- **Real-time Preview**: Before/after comparison with interactive slider
-- **Batch Operations**: Consistent settings across multiple files
-- **Performance Focused**: Web Workers for non-blocking processing
-- **Modern UI**: Built with React, TypeScript, and Tailwind CSS
+This repository contains all the functionality for Supabase CLI.
 
-## 🛠️ Tech Stack
+- [x] Running Supabase locally
+- [x] Managing database migrations
+- [x] Creating and deploying Supabase Functions
+- [x] Generating types directly from your database schema
+- [x] Making authenticated HTTP requests to [Management API](https://supabase.com/docs/reference/api/introduction)
 
-- **Framework**: React 19 with TypeScript
-- **Build Tool**: Vite 7
-- **Styling**: Tailwind CSS 4
-- **State Management**: Zustand
-- **UI Components**: Headless UI
-- **Testing**: Vitest + Testing Library + Playwright
-- **Code Quality**: ESLint + Prettier + Husky
+## Getting started
 
-## 📦 Getting Started
+### Install the CLI
 
-### Prerequisites
+Available via [NPM](https://www.npmjs.com) as dev dependency. To install:
 
-- Node.js 18+ (recommended: 20+)
-- npm or yarn
-
-### Installation
-
-1. Clone the repository:
-   ```bash
-   git clone <repository-url>
-   cd bulk-image-optimizer
-   ```
-
-2. Install dependencies:
-   ```bash
-   npm install
-   ```
-
-3. Start the development server:
-   ```bash
-   npm run dev
-   ```
-
-4. Open your browser and navigate to `http://localhost:3000`
-
-## 🧪 Development
-
-### Available Scripts
-
-- `npm run dev` - Start development server
-- `npm run build` - Build for production
-- `npm run preview` - Preview production build
-- `npm run lint` - Run ESLint
-- `npm run format` - Format code with Prettier
-- `npm run format:check` - Check code formatting
-- `npm run type-check` - Run TypeScript type checking
-- `npm test` - Run unit tests
-- `npm run test:ui` - Run tests with UI
-- `npm run test:coverage` - Run tests with coverage
-- `npm run test:e2e` - Run end-to-end tests
-
-### Project Structure
-
-```
-src/
-├── components/          # React components
-│   ├── ui/             # Reusable UI components
-│   ├── upload/         # File upload components
-│   ├── processing/     # Image processing components
-│   ├── preview/        # Preview components
-│   └── common/         # Common layout components
-├── hooks/              # Custom React hooks
-├── lib/                # Utility libraries
-│   ├── utils/          # General utilities
-│   ├── image-processing/ # Image processing logic
-│   └── codecs/         # Codec implementations
-├── store/              # Zustand store
-├── types/              # TypeScript type definitions
-├── workers/            # Web Workers
-└── test/               # Test utilities
+```bash
+npm i supabase --save-dev
 ```
 
-### Code Quality
+To install the beta release channel:
 
-This project uses several tools to maintain code quality:
+```bash
+npm i supabase@beta --save-dev
+```
 
-- **ESLint** with TypeScript and React rules
-- **Prettier** for consistent formatting
-- **Husky** for Git hooks
-- **lint-staged** for pre-commit checks
+When installing with yarn 4, you need to disable experimental fetch with the following nodejs config.
 
-All commits are automatically checked for:
-- TypeScript type errors
-- ESLint rule violations
-- Code formatting issues
+```
+NODE_OPTIONS=--no-experimental-fetch yarn add supabase
+```
 
-### Testing
+> **Note**
+For Bun versions below v1.0.17, you must add `supabase` as a [trusted dependency](https://bun.sh/guides/install/trusted) before running `bun add -D supabase`.
 
-The project includes comprehensive testing setup:
+<details>
+  <summary><b>macOS</b></summary>
 
-- **Unit Tests**: Vitest + Testing Library
-- **E2E Tests**: Playwright
-- **Coverage**: Built-in coverage reporting
+  Available via [Homebrew](https://brew.sh). To install:
 
-## 🏗️ Architecture
+  ```sh
+  brew install supabase/tap/supabase
+  ```
 
-### Image Processing Pipeline
+  To install the beta release channel:
+  
+  ```sh
+  brew install supabase/tap/supabase-beta
+  brew link --overwrite supabase-beta
+  ```
+  
+  To upgrade:
 
-1. **File Upload** → Drag & drop or file browser
-2. **Validation** → File type and size checks
-3. **Queue Management** → Smart batching for performance
-4. **Web Worker Processing** → Non-blocking compression
-5. **Results** → Download optimized images
-6. **Error Recovery** → Graceful error handling
+  ```sh
+  brew upgrade supabase
+  ```
+</details>
 
-### Performance Considerations
+<details>
+  <summary><b>Windows</b></summary>
 
-- Web Workers prevent UI blocking during processing
-- Memory management for large batch processing
-- Progressive loading and caching
-- Optimized bundle splitting
+  Available via [Scoop](https://scoop.sh). To install:
 
-## 🤝 Contributing
+  ```powershell
+  scoop bucket add supabase https://github.com/supabase/scoop-bucket.git
+  scoop install supabase
+  ```
 
-1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Make your changes and add tests
-4. Run the test suite: `npm test`
-5. Commit your changes: `git commit -m "Description"`
-6. Push to the branch: `git push origin feature-name`
-7. Open a pull request
+  To upgrade:
 
-## 📄 License
+  ```powershell
+  scoop update supabase
+  ```
+</details>
 
-This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
+<details>
+  <summary><b>Linux</b></summary>
 
-## 🙏 Acknowledgments
+  Available via [Homebrew](https://brew.sh) and Linux packages.
 
-- Inspired by [Squoosh.app](https://squoosh.app/) by Google Chrome Labs
-- Built with modern web technologies for optimal performance
-- Designed for both casual users and developers
+  #### via Homebrew
+
+  To install:
+
+  ```sh
+  brew install supabase/tap/supabase
+  ```
+
+  To upgrade:
+
+  ```sh
+  brew upgrade supabase
+  ```
+
+  #### via Linux packages
+
+  Linux packages are provided in [Releases](https://github.com/supabase/cli/releases). To install, download the `.apk`/`.deb`/`.rpm`/`.pkg.tar.zst` file depending on your package manager and run the respective commands.
+
+  ```sh
+  sudo apk add --allow-untrusted <...>.apk
+  ```
+
+  ```sh
+  sudo dpkg -i <...>.deb
+  ```
+
+  ```sh
+  sudo rpm -i <...>.rpm
+  ```
+
+  ```sh
+  sudo pacman -U <...>.pkg.tar.zst
+  ```
+</details>
+
+<details>
+  <summary><b>Other Platforms</b></summary>
+
+  You can also install the CLI via [go modules](https://go.dev/ref/mod#go-install) without the help of package managers.
+
+  ```sh
+  go install github.com/supabase/cli@latest
+  ```
+
+  Add a symlink to the binary in `$PATH` for easier access:
+
+  ```sh
+  ln -s "$(go env GOPATH)/bin/cli" /usr/bin/supabase
+  ```
+
+  This works on other non-standard Linux distros.
+</details>
+
+<details>
+  <summary><b>Community Maintained Packages</b></summary>
+
+  Available via [pkgx](https://pkgx.sh/). Package script [here](https://github.com/pkgxdev/pantry/blob/main/projects/supabase.com/cli/package.yml).
+  To install in your working directory:
+
+  ```bash
+  pkgx install supabase
+  ```
+
+  Available via [Nixpkgs](https://nixos.org/). Package script [here](https://github.com/NixOS/nixpkgs/blob/master/pkgs/development/tools/supabase-cli/default.nix).
+</details>
+
+### Run the CLI
+
+```bash
+supabase bootstrap
+```
+
+Or using npx:
+
+```bash
+npx supabase bootstrap
+```
+
+The bootstrap command will guide you through the process of setting up a Supabase project using one of the [starter](https://github.com/supabase-community/supabase-samples/blob/main/samples.json) templates.
+
+## Docs
+
+Command & config reference can be found [here](https://supabase.com/docs/reference/cli/about).
+
+## Breaking changes
+
+We follow semantic versioning for changes that directly impact CLI commands, flags, and configurations.
+
+However, due to dependencies on other service images, we cannot guarantee that schema migrations, seed.sql, and generated types will always work for the same CLI major version. If you need such guarantees, we encourage you to pin a specific version of CLI in package.json.
+
+## Developing
+
+To run from source:
+
+```sh
+# Go >= 1.22
+go run . help
+```

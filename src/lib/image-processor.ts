@@ -99,7 +99,8 @@ export class ImageProcessor {
             compressionRatio: processedResult.compressionRatio
           });
 
-          console.log(`Processed ${file.name}: ${file.size} → ${result.blob.size} bytes (${processedResult.compressionRatio.toFixed(1)}% reduction)`);
+          const sizeChange = processedResult.compressionRatio >= 0 ? 'reduction' : 'increase';
+          console.log(`Processed ${file.name}: ${file.size} → ${result.blob.size} bytes (${Math.abs(processedResult.compressionRatio).toFixed(1)}% ${sizeChange})`);
 
         } catch (error) {
           console.error(`Error processing ${file.name}:`, error);
@@ -138,51 +139,62 @@ export class ImageProcessor {
         return;
       }
 
-      img.onload = () => {
+      img.onload = async () => {
         try {
           onProgress?.(25);
 
-          // Set canvas dimensions
-          canvas.width = img.width;
-          canvas.height = img.height;
+          // Calculate optimal dimensions for compression
+          const maxDimension = this.getMaxDimension(settings);
+          const { width, height } = this.calculateCompressedDimensions(
+            img.width, 
+            img.height, 
+            maxDimension
+          );
+
+          // Set canvas dimensions (potentially smaller for compression)
+          canvas.width = width;
+          canvas.height = height;
 
           onProgress?.(50);
 
-          // Draw image to canvas
-          ctx.drawImage(img, 0, 0);
+          // Draw image to canvas with potential resizing
+          ctx.drawImage(img, 0, 0, width, height);
 
           onProgress?.(75);
 
-          // Determine output format - use original format if settings.format is 'auto'
-          let outputFormat: string;
-          const originalFormat = file.type;
+          // Determine output format for best compression
+          const { outputFormat, quality } = this.getOptimalSettings(file, settings);
           
-          if (settings.format === 'auto') {
-            outputFormat = originalFormat;
+          // Try to compress the image
+          const compressedBlob = await this.compressToBlob(canvas, outputFormat, quality);
+          
+          onProgress?.(90);
+
+          // Check if compression was beneficial, otherwise use original
+          let finalBlob: Blob;
+          let actualFormat: string;
+          
+          const compressionRatio = ((file.file.size - compressedBlob.size) / file.file.size) * 100;
+          console.log(`${file.name}: ${file.file.size} → ${compressedBlob.size} bytes (${compressionRatio.toFixed(1)}% change), format: ${file.type} → ${outputFormat}, quality: ${quality}`);
+          
+          if (compressedBlob.size < file.file.size * 0.95) { // At least 5% reduction
+            finalBlob = compressedBlob;
+            actualFormat = compressedBlob.type.replace('image/', '');
+            console.log(`✅ Using compressed version for ${file.name}`);
           } else {
-            outputFormat = this.getOutputMimeType(settings.format);
+            // Compression didn't help, use original
+            finalBlob = file.file;
+            actualFormat = file.type.replace('image/', '');
+            console.log(`⚠️ Compression not beneficial for ${file.name}, using original`);
           }
-          
-          const quality = settings.quality / 100; // Convert to 0-1 range
 
-          canvas.toBlob(
-            (blob) => {
-              if (blob) {
-                onProgress?.(100);
-                const actualFormat = blob.type.replace('image/', '') || outputFormat.replace('image/', '');
-                resolve({ blob, actualFormat });
-              } else {
-                reject(new Error('Failed to create blob'));
-              }
+          onProgress?.(100);
+          resolve({ blob: finalBlob, actualFormat });
 
-              // Clean up canvas
-              canvas.width = 0;
-              canvas.height = 0;
-              URL.revokeObjectURL(img.src);
-            },
-            outputFormat,
-            quality
-          );
+          // Clean up canvas
+          canvas.width = 0;
+          canvas.height = 0;
+          URL.revokeObjectURL(img.src);
 
         } catch (error) {
           // Clean up on error
@@ -200,6 +212,76 @@ export class ImageProcessor {
 
       // Create object URL and load image
       img.src = URL.createObjectURL(file.file);
+    });
+  }
+
+  private getMaxDimension(settings: CompressionSettings): number {
+    // Determine max dimension based on quality setting
+    if (settings.quality >= 90) return 4096;  // High quality - minimal resize
+    if (settings.quality >= 75) return 2560;  // Medium quality
+    if (settings.quality >= 50) return 1920;  // Lower quality
+    return 1280; // Very compressed
+  }
+
+  private calculateCompressedDimensions(width: number, height: number, maxDimension: number): { width: number; height: number } {
+    // If image is smaller than max, keep original dimensions
+    if (width <= maxDimension && height <= maxDimension) {
+      return { width, height };
+    }
+
+    // Calculate aspect ratio
+    const aspectRatio = width / height;
+    
+    if (width > height) {
+      return {
+        width: Math.min(width, maxDimension),
+        height: Math.round(Math.min(width, maxDimension) / aspectRatio)
+      };
+    } else {
+      return {
+        width: Math.round(Math.min(height, maxDimension) * aspectRatio),
+        height: Math.min(height, maxDimension)
+      };
+    }
+  }
+
+  private getOptimalSettings(file: ImageFile, settings: CompressionSettings): { outputFormat: string; quality: number } {
+    const originalFormat = file.type;
+    let outputFormat: string;
+    let quality = settings.quality / 100;
+
+    if (settings.format === 'auto') {
+      // Smart format selection based on original format and size
+      if (originalFormat === 'image/png' && file.size > 500000) { // Large PNG
+        outputFormat = 'image/jpeg'; // Convert large PNGs to JPEG
+        quality = Math.max(0.7, quality); // Ensure decent quality for conversion
+      } else if (originalFormat === 'image/jpeg') {
+        outputFormat = 'image/jpeg';
+        // For already compressed JPEGs, be more conservative with quality
+        quality = Math.max(0.6, quality);
+      } else {
+        outputFormat = originalFormat; // Keep original format for other types
+      }
+    } else {
+      outputFormat = this.getOutputMimeType(settings.format);
+    }
+
+    return { outputFormat, quality };
+  }
+
+  private compressToBlob(canvas: HTMLCanvasElement, format: string, quality: number): Promise<Blob> {
+    return new Promise((resolve, reject) => {
+      canvas.toBlob(
+        (blob) => {
+          if (blob) {
+            resolve(blob);
+          } else {
+            reject(new Error('Failed to create compressed blob'));
+          }
+        },
+        format,
+        quality
+      );
     });
   }
 

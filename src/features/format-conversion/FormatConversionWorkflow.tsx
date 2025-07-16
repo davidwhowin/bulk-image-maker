@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
 import { FormatConverter } from '@/lib/format-converter';
 import { FormatSelector, BatchFormatSelector } from '@/components/format/FormatSelector';
+import { useAuthStore } from '@/lib/auth-store';
 import type { 
   SupportedFormat, 
   FormatConversionResult, 
@@ -32,6 +33,8 @@ export function FormatConversionWorkflow({
   const [error, setError] = useState<string | null>(null);
   const [estimatedTime, setEstimatedTime] = useState<number>(0);
   const [uniformFormat, setUniformFormat] = useState(true);
+  
+  const { isAuthenticated, updateUsageStats, checkFileUploadLimits } = useAuthStore();
 
   // Calculate estimated processing time
   useEffect(() => {
@@ -45,6 +48,22 @@ export function FormatConversionWorkflow({
 
   const handleStartConversion = useCallback(async () => {
     if (files.length === 0) return;
+
+    // Check tier limits before processing if user is authenticated
+    if (isAuthenticated) {
+      try {
+        const limitCheck = await checkFileUploadLimits(files);
+        if (!limitCheck.canProcess) {
+          setError(limitCheck.message || 'Processing blocked by tier limits');
+          setState('error');
+          onError?.(limitCheck.message || 'Processing blocked by tier limits');
+          return;
+        }
+      } catch (error) {
+        console.error('Failed to check tier limits:', error);
+        // Continue processing for now, but log the error
+      }
+    }
 
     setState('converting');
     setError(null);
@@ -73,13 +92,29 @@ export function FormatConversionWorkflow({
       setState('completed');
       onComplete(conversionResults);
 
+      // Track usage in database if user is authenticated
+      if (isAuthenticated && conversionResults.length > 0) {
+        try {
+          const totalOriginalSize = files.reduce((sum, file) => sum + file.size, 0);
+          console.log('Updating usage stats from format conversion:', {
+            imageCount: conversionResults.length,
+            storageUsed: totalOriginalSize
+          });
+          await updateUsageStats(conversionResults.length, totalOriginalSize);
+          console.log('Usage stats updated successfully from format conversion');
+        } catch (error) {
+          console.error('Failed to update usage stats from format conversion:', error);
+          // Don't fail the whole operation for this
+        }
+      }
+
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Conversion failed';
       setError(errorMessage);
       setState('error');
       onError?.(errorMessage);
     }
-  }, [files, selectedFormat, quality, converter, onComplete, onProgress, onError]);
+  }, [files, selectedFormat, quality, converter, onComplete, onProgress, onError, isAuthenticated, updateUsageStats, checkFileUploadLimits]);
 
   const handleCancelConversion = useCallback(() => {
     converter.abort();

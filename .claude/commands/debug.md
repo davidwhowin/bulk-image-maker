@@ -4,6 +4,7 @@ Debug issue in bulk image optimizer:
 3. Create test that reproduces the bug
 4. Implement fix that passes all tests
 5. Verify fix doesn't break existing functionality
+6. Update Claude.md checklist
 
 Issue to debug: $ARGUMENTS
 

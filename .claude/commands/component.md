@@ -4,6 +4,7 @@ Create a new React component with:
 - Accessibility considerations
 - Unit tests with good coverage
 - Storybook story (if using Storybook)
+- Update Claude.md checklist
 
 Component creation for: $ARGUMENTS
 

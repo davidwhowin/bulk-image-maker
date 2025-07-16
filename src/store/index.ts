@@ -97,8 +97,8 @@ interface AppState {
 }
 
 const defaultCompressionSettings: CompressionSettings = {
-  format: 'auto', // Preserve original format by default
-  quality: 75,
+  format: 'auto', // Smart format selection for best compression
+  quality: 80, // Better balance between quality and compression
   effort: 4,
   stripMetadata: true,
 };
