@@ -1,0 +1,48 @@
+/* Custom slider styles for TierLimitSlider */
+.slider-thumb {
+  /* WebKit styles */
+  -webkit-appearance: none;
+}
+
+.slider-thumb::-webkit-slider-thumb {
+  appearance: none;
+  height: 20px;
+  width: 20px;
+  border-radius: 50%;
+  background: currentColor;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+.slider-thumb::-moz-range-thumb {
+  height: 20px;
+  width: 20px;
+  border-radius: 50%;
+  background: currentColor;
+  cursor: pointer;
+  border: 2px solid white;
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
+}
+
+/* Focus styles */
+.slider-thumb:focus::-webkit-slider-thumb {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5);
+}
+
+.slider-thumb:focus::-moz-range-thumb {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.5);
+}
+
+/* Disabled styles */
+.slider-thumb:disabled::-webkit-slider-thumb {
+  background: #9CA3AF;
+  cursor: not-allowed;
+}
+
+.slider-thumb:disabled::-moz-range-thumb {
+  background: #9CA3AF;
+  cursor: not-allowed;
+}
