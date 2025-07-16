@@ -2,7 +2,7 @@ import { useState, useCallback } from 'react'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/lib/auth-store'
 
-interface UsageHistoryEntry {
+export interface UsageHistoryEntry {
   month: string
   images_processed: number
   storage_used: number
@@ -10,7 +10,7 @@ interface UsageHistoryEntry {
   created_at: string
 }
 
-interface SetUsageResult {
+export interface SetUsageResult {
   success: boolean
   user_id?: string
   month?: string
@@ -23,7 +23,7 @@ interface SetUsageResult {
   error_code?: string
 }
 
-interface BulkResetResult {
+export interface BulkResetResult {
   success: boolean
   month?: string
   affected_users?: number
@@ -240,15 +240,8 @@ export function useAdminUsageControls() {
     // Utilities
     formatFileSize,
     formatMonth,
-    getCurrentMonth,
-    
-    // Type exports for components
-    types: {
-      UsageHistoryEntry,
-      SetUsageResult,
-      BulkResetResult
-    }
+    getCurrentMonth
   }
 }
 
-export type { UsageHistoryEntry, SetUsageResult, BulkResetResult }
+// Types are already exported above

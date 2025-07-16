@@ -7,6 +7,7 @@ export interface User {
   id: string
   email: string
   userTier: UserTier
+  isAdmin?: boolean
   createdAt: string
   lastLoginAt?: string
 }
@@ -21,6 +22,7 @@ export interface AuthState {
   isAuthenticated: boolean
   isLoading: boolean
   userTier: UserTier
+  isAdmin: boolean
   error: AuthError | null
   needsEmailVerification: boolean
   pendingVerificationEmail: string | null
@@ -42,6 +44,9 @@ export interface AuthActions {
   updatePassword: (newPassword: string) => Promise<void>
   reset: () => void
   initialize: () => Promise<void>
+  
+  // Admin actions
+  checkIsAdmin: () => Promise<boolean>
   
   // Tier-related actions
   checkFileUploadLimits: (files: File[]) => Promise<TierUsageResult>

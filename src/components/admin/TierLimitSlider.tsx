@@ -12,7 +12,7 @@ interface TierLimitSliderProps {
   disabled?: boolean
   className?: string
   showInput?: boolean
-  color?: 'blue' | 'green' | 'purple' | 'orange'
+  color?: 'blue' | 'green' | 'purple' | 'orange' | 'gray'
 }
 
 export function TierLimitSlider({
@@ -64,14 +64,16 @@ export function TierLimitSlider({
     blue: 'bg-blue-600',
     green: 'bg-green-600', 
     purple: 'bg-purple-600',
-    orange: 'bg-orange-600'
+    orange: 'bg-orange-600',
+    gray: 'bg-gray-600'
   }
 
   const focusColorClasses = {
     blue: 'focus:ring-blue-500',
     green: 'focus:ring-green-500',
     purple: 'focus:ring-purple-500', 
-    orange: 'focus:ring-orange-500'
+    orange: 'focus:ring-orange-500',
+    gray: 'focus:ring-gray-500'
   }
 
   return (
@@ -155,7 +157,7 @@ export function ImageLimitSlider({
   onChange: (value: number) => void
   disabled?: boolean
   className?: string
-  color?: 'blue' | 'green' | 'purple' | 'orange'
+  color?: 'blue' | 'green' | 'purple' | 'orange' | 'gray'
 }) {
   const formatValue = (val: number): string => {
     if (val >= 1000) {
@@ -191,7 +193,7 @@ export function FileSizeSlider({
   onChange: (value: number) => void
   disabled?: boolean
   className?: string
-  color?: 'blue' | 'green' | 'purple' | 'orange'
+  color?: 'blue' | 'green' | 'purple' | 'orange' | 'gray'
 }) {
   const formatValue = (bytes: number): string => {
     const units = ['B', 'KB', 'MB', 'GB']
@@ -239,7 +241,7 @@ export function BatchSizeSlider({
   onChange: (value: number) => void
   disabled?: boolean
   className?: string
-  color?: 'blue' | 'green' | 'purple' | 'orange'
+  color?: 'blue' | 'green' | 'purple' | 'orange' | 'gray'
 }) {
   return (
     <TierLimitSlider

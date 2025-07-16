@@ -11,6 +11,7 @@ const initialState: AuthState = {
   isAuthenticated: false,
   isLoading: true,
   userTier: 'free',
+  isAdmin: false,
   error: null,
   needsEmailVerification: false,
   pendingVerificationEmail: null,
@@ -62,7 +63,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
         // Fetch user profile to get tier information
         const { data: profile, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_tier')
+          .select('user_tier, is_admin')
           .eq('id', data.user.id)
           .single()
 
@@ -75,7 +76,8 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
               .from('user_profiles')
               .insert({
                 id: data.user.id,
-                user_tier: 'free'
+                user_tier: 'free',
+                is_admin: false
               })
             
             if (createError) {
@@ -104,6 +106,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
           id: data.user.id,
           email: data.user.email!,
           userTier: profile?.user_tier || 'free',
+          isAdmin: profile?.is_admin || false,
           createdAt: data.user.created_at,
           lastLoginAt: new Date().toISOString()
         }
@@ -113,6 +116,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
           isAuthenticated: true,
           isLoading: false,
           userTier: user.userTier,
+          isAdmin: user.isAdmin || false,
           needsEmailVerification: false,
           pendingVerificationEmail: null
         })
@@ -161,7 +165,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
           // Fetch user profile to get tier information
           const { data: profile, error: profileError } = await supabase
             .from('user_profiles')
-            .select('user_tier')
+            .select('user_tier, is_admin')
             .eq('id', data.user.id)
             .single()
 
@@ -173,7 +177,8 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
                 .from('user_profiles')
                 .insert({
                   id: data.user.id,
-                  user_tier: 'free'
+                  user_tier: 'free',
+                is_admin: false
                 })
               
               if (createError) {
@@ -186,6 +191,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
             id: data.user.id,
             email: data.user.email!,
             userTier: profile?.user_tier || 'free',
+          isAdmin: profile?.is_admin || false,
             createdAt: data.user.created_at
           }
 
@@ -399,7 +405,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
         // Fetch user profile to get tier information
         const { data: profile, error: profileError } = await supabase
           .from('user_profiles')
-          .select('user_tier')
+          .select('user_tier, is_admin')
           .eq('id', session.user.id)
           .single()
 
@@ -411,6 +417,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
           id: session.user.id,
           email: session.user.email!,
           userTier: profile?.user_tier || 'free',
+          isAdmin: profile?.is_admin || false,
           createdAt: session.user.created_at,
           lastLoginAt: new Date().toISOString()
         }
@@ -441,7 +448,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
           // Fetch user profile to get tier information
           const { data: profile, error: profileError } = await supabase
             .from('user_profiles')
-            .select('user_tier')
+            .select('user_tier, is_admin')
             .eq('id', session.user.id)
             .single()
 
@@ -453,6 +460,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
             id: session.user.id,
             email: session.user.email!,
             userTier: profile?.user_tier || 'free',
+          isAdmin: profile?.is_admin || false,
             createdAt: session.user.created_at,
             lastLoginAt: new Date().toISOString()
           }
@@ -624,6 +632,31 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
           code: 'network_error' 
         }
       })
+      return false
+    }
+  },
+
+  checkIsAdmin: async (): Promise<boolean> => {
+    try {
+      const { data, error } = await supabase.rpc('is_admin')
+      
+      if (error) {
+        console.error('Error checking admin status:', error)
+        return false
+      }
+      
+      const isAdminResult = data || false
+      
+      // Update the auth store with admin status
+      set(state => ({
+        ...state,
+        isAdmin: isAdminResult,
+        user: state.user ? { ...state.user, isAdmin: isAdminResult } : null
+      }))
+      
+      return isAdminResult
+    } catch (error) {
+      console.error('Error checking admin status:', error)
       return false
     }
   },

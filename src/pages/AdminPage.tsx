@@ -8,6 +8,8 @@ type AdminTab = 'tier-config' | 'usage-controls'
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<AdminTab>('tier-config')
 
+  // No need for admin checks here - ProtectedRoute handles it
+
   return (
     <Layout>
       <div className="space-y-6">

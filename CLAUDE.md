@@ -87,6 +87,8 @@ src/components/
 ├── processing/      # Image processing UI components
 ├── preview/         # Before/after comparison components
 ├── common/          # Shared layout components
+├── auth/            # Authentication components and route protection
+├── admin/           # Admin-only components and interfaces
 └── ui/              # Reusable UI primitives
 ```
 
@@ -97,6 +99,12 @@ src/components/
 - **PerformanceMonitor**: Memory usage tracking and performance metrics
 - **FolderStructureSettings**: Toggle between flat/structured downloads with options
 - **FolderTreeView**: Interactive visualization of uploaded folder hierarchy
+
+### Authentication & Admin Components
+- **ProtectedRoute**: Role-based access control with admin verification
+- **AuthProvider**: Authentication state management and user session handling
+- **TierConfigAdmin**: Visual tier configuration interface with sliders and charts
+- **AdminUsageControls**: User usage statistics management and bulk operations
 
 ## Memory Management Strategy
 
@@ -161,6 +169,14 @@ import type { ImageFile } from '@/types';
 - `addFiles(files, folderResult)`: Add files with folder structure data
 - `updateFolderSettings()`: Configure preservation options
 - `setFolderStructure()`: Store parsed folder hierarchy
+
+### Admin & Security Functions (`src/lib/auth-store.ts`)
+- `checkIsAdmin()`: Verify current user admin status
+- `supabase.rpc('is_admin')`: Database-level admin status check
+- `supabase.rpc('promote_to_admin', {target_user_id})`: Promote user to admin
+- `supabase.rpc('revoke_admin', {target_user_id})`: Revoke admin privileges
+- `supabase.rpc('set_usage_stats', params)`: Manually set user usage statistics
+- `supabase.rpc('reset_usage_stats', params)`: Reset monthly usage for users
 
 ## Development Workflow
 
@@ -368,6 +384,16 @@ import type { ImageFile } from '@/types';
 - [x] Performance monitoring and caching
 - [x] Comprehensive input validation
 - [x] Production-ready database schema design
+
+### Admin Security & Management (COMPLETED)
+- [x] Role-based access control (RBAC) with database-level security
+- [x] Row Level Security (RLS) policies for admin operations
+- [x] Admin-only route protection with ProtectedRoute component
+- [x] Visual tier configuration interface with real-time updates
+- [x] User usage statistics management and bulk operations
+- [x] Admin user promotion/demotion with safety safeguards
+- [x] Comprehensive security documentation and implementation
+- [x] Multi-layer security (database + application + component level)
 
 ## 📋 Phase 4: Team & Collaboration Features (Month 5)
 
