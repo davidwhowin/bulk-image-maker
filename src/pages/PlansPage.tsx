@@ -1,7 +1,8 @@
-import { useState } from 'react'
-import { Check, Zap, Users, Building2 } from 'lucide-react'
+import { useState, useMemo, useEffect } from 'react'
+import { Check, Zap, Users, Building2, CreditCard, Settings } from 'lucide-react'
 import { useAuthStore } from '@/lib/auth-store'
-import { TIER_LIMITS } from '@/lib/tier-config'
+import { useTierConfig } from '@/hooks/useTierConfig'
+import { subscriptionService, SUBSCRIPTION_PLANS } from '@/lib/subscription-service'
 import type { UserTier } from '@/types/tiers'
 
 interface PlanFeature {
@@ -10,137 +11,206 @@ interface PlanFeature {
 }
 
 interface Plan {
-  id: UserTier
+  id: string
+  tier: UserTier
   name: string
   description: string
   price: string
   originalPrice?: string
   features: PlanFeature[]
-  icon: React.ComponentType<any>
+  icon: React.ComponentType<React.SVGProps<SVGSVGElement>>
   popular?: boolean
   buttonText: string
   buttonVariant: 'primary' | 'secondary' | 'outline'
+  interval: 'month' | 'year'
+  stripePriceId?: string
 }
 
-const plans: Plan[] = [
-  {
-    id: 'free',
-    name: 'Free',
-    description: 'Perfect for trying out our image optimization',
-    price: 'Free',
-    features: [
-      { name: '100 images per month', included: true },
-      { name: '5MB max file size', included: true },
-      { name: '1 image batch processing', included: true },
-      { name: 'JPEG & PNG formats', included: true },
-      { name: 'Basic processing speed', included: true },
-      { name: 'Email support', included: false },
-      { name: 'Team features', included: false },
-      { name: 'Priority support', included: false }
-    ],
-    icon: Zap,
-    buttonText: 'Current Plan',
-    buttonVariant: 'outline'
-  },
-  {
-    id: 'pro',
-    name: 'Pro',
-    description: 'For professionals who need more power',
-    price: 'Free',
-    originalPrice: '$29/month',
-    features: [
-      { name: '3,000 images per month', included: true },
-      { name: '25MB max file size', included: true },
-      { name: '10 image batch processing', included: true },
-      { name: 'All image formats', included: true },
-      { name: 'Fast processing (10-15s)', included: true },
-      { name: 'Email support', included: true },
-      { name: 'Team features', included: false },
-      { name: 'Priority support', included: false }
-    ],
-    icon: Zap,
-    popular: true,
-    buttonText: 'Upgrade to Pro',
-    buttonVariant: 'primary'
-  },
-  {
-    id: 'team',
-    name: 'Team',
-    description: 'Perfect for teams and small businesses',
-    price: 'Free',
-    originalPrice: '$149/month',
-    features: [
-      { name: '15,000 images per month', included: true },
-      { name: '100MB max file size', included: true },
-      { name: '50 image batch processing', included: true },
-      { name: 'All formats + early access', included: true },
-      { name: 'Very fast processing (3-5s)', included: true },
-      { name: 'Live chat support', included: true },
-      { name: 'Team collaboration', included: true },
-      { name: 'Priority support', included: false }
-    ],
-    icon: Users,
-    buttonText: 'Upgrade to Team',
-    buttonVariant: 'primary'
-  },
-  {
-    id: 'enterprise',
-    name: 'Enterprise',
-    description: 'For large organizations with custom needs',
-    price: 'Free',
-    originalPrice: '$499/month',
-    features: [
-      { name: '75,000 images per month', included: true },
-      { name: '500MB max file size', included: true },
-      { name: '500 image batch processing', included: true },
-      { name: 'All formats + custom', included: true },
-      { name: 'Ultra-fast processing (1-2s)', included: true },
-      { name: 'Phone + dedicated manager', included: true },
-      { name: 'Advanced team features', included: true },
-      { name: '24/7 priority support', included: true }
-    ],
-    icon: Building2,
-    buttonText: 'Upgrade to Enterprise',
-    buttonVariant: 'primary'
-  }
-]
-
 export default function PlansPage() {
-  const { userTier, upgradeUserTier, currentUsage, tierLimits, error } = useAuthStore()
-  const [upgrading, setUpgrading] = useState<UserTier | null>(null)
+  const { userTier, upgradeUserTier, currentUsage, tierLimits, error, user } = useAuthStore()
+  const { config, formatFileSize } = useTierConfig()
+  const [upgrading, setUpgrading] = useState<string | null>(null)
+  const [billingInterval, setBillingInterval] = useState<'month' | 'year'>('month')
+  const [canManageSubscription, setCanManageSubscription] = useState(false)
 
-  const formatFileSize = (bytes: number): string => {
-    const units = ['B', 'KB', 'MB', 'GB']
-    let size = bytes
-    let unitIndex = 0
-    
-    while (size >= 1024 && unitIndex < units.length - 1) {
-      size /= 1024
-      unitIndex++
+  // Check if user has an active subscription they can manage
+  useEffect(() => {
+    const checkSubscription = async () => {
+      if (!user?.id) return
+      
+      const subscription = await subscriptionService.getCurrentSubscription(user.id)
+      setCanManageSubscription(!!subscription?.stripeCustomerId)
     }
     
-    return `${size.toFixed(0)} ${units[unitIndex]}`
+    checkSubscription()
+  }, [user?.id])
+
+  // Handle success/cancel from Stripe checkout
+  useEffect(() => {
+    const urlParams = new URLSearchParams(window.location.search)
+    const success = urlParams.get('success')
+    const canceled = urlParams.get('canceled')
+    const tier = urlParams.get('tier')
+
+    if (success === 'true') {
+      // Show success message
+      const message = tier 
+        ? `Successfully upgraded to ${tier.charAt(0).toUpperCase() + tier.slice(1)} plan!`
+        : 'Payment successful!'
+      
+      console.log('Payment successful, refreshing user data...')
+      
+      // Clean up URL first
+      window.history.replaceState({}, '', '/plans')
+      
+      // Force refresh user data from database
+      if (user?.id) {
+        // Extract tier from URL parameter since webhook might fail
+        const targetTier = tier as UserTier || 'pro'
+        
+        // Add a small delay to ensure webhook has processed
+        setTimeout(async () => {
+          // Use the new refreshSubscriptionStatus method to get latest tier from database
+          await useAuthStore.getState().refreshSubscriptionStatus()
+          
+          const currentTier = useAuthStore.getState().userTier
+          console.log('User data refreshed, new tier:', currentTier)
+          
+          // If tier is still 'free', the webhook failed - manually update it
+          if (currentTier === 'free') {
+            console.log('❌ Webhook failed - tier still free, manually updating...')
+            
+            // Call the backend to manually update the tier
+            try {
+              const response = await fetch('http://localhost:3001/api/manual-tier-update', {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                  userId: user.id,
+                  tier: targetTier
+                })
+              })
+              
+              if (response.ok) {
+                console.log('✅ Manual tier update successful')
+                // Refresh again to get updated tier
+                await useAuthStore.getState().refreshSubscriptionStatus()
+                alert(`Successfully upgraded to ${targetTier.charAt(0).toUpperCase() + targetTier.slice(1)} plan!`)
+              } else {
+                console.error('❌ Manual tier update failed')
+                alert('Payment successful, but tier update failed. Please refresh the page.')
+              }
+            } catch (error) {
+              console.error('❌ Manual tier update error:', error)
+              alert('Payment successful, but tier update failed. Please refresh the page.')
+            }
+          } else {
+            alert(message)
+          }
+          
+          // Force re-render by setting a state update
+          window.location.reload()
+        }, 3000) // 3 second delay to ensure webhook processing
+      }
+    } else if (canceled === 'true') {
+      alert('Payment was canceled. You can try again anytime.')
+      
+      // Clean up URL
+      window.history.replaceState({}, '', '/plans')
+    }
+  }, [user?.id])
+
+  const getProcessingSpeedText = (priority: string): string => {
+    switch (priority) {
+      case 'low': return 'Basic processing speed'
+      case 'normal': return 'Standard processing speed'
+      case 'high': return 'Fast processing speed'
+      case 'highest': return 'Ultra-fast processing speed'
+      default: return 'Standard processing speed'
+    }
   }
 
-  const handleUpgrade = async (targetTier: UserTier) => {
-    if (targetTier === userTier) return
+  const getSupportTypeText = (support: string): string => {
+    switch (support) {
+      case 'none': return 'Community support'
+      case 'email': return 'Email support'
+      case 'chat': return 'Live chat support'
+      case 'phone': return 'Phone + dedicated manager'
+      default: return 'Email support'
+    }
+  }
 
-    setUpgrading(targetTier)
+  // Generate plans from subscription plans
+  const plans = useMemo<Plan[]>(() => {
+    return SUBSCRIPTION_PLANS
+      .filter(plan => plan.interval === billingInterval)
+      .map(plan => {
+        const tierConfig = config[plan.tier]
+        const isCurrentTier = plan.tier === userTier
+        const isTestingMode = subscriptionService.isTestingMode()
+        
+        return {
+          id: plan.id,
+          tier: plan.tier,
+          name: plan.name,
+          description: plan.description,
+          price: isTestingMode ? 'Free' : plan.price === 0 ? 'Free' : `$${plan.price}${billingInterval === 'year' ? '/year' : '/month'}`,
+          originalPrice: isTestingMode && plan.price > 0 ? `$${plan.price}${billingInterval === 'year' ? '/year' : '/month'}` : undefined,
+          features: [
+            { name: `${tierConfig.maxImagesPerMonth.toLocaleString()} images per month`, included: true },
+            { name: `${formatFileSize(tierConfig.maxFileSize)} max file size`, included: true },
+            { name: `${tierConfig.maxBatchSize} image batch processing`, included: true },
+            { name: `${tierConfig.supportedFormats.length} formats supported`, included: true },
+            { name: getProcessingSpeedText(tierConfig.processingPriority), included: true },
+            { name: getSupportTypeText(tierConfig.prioritySupport), included: tierConfig.prioritySupport !== 'none' },
+            { name: plan.tier === 'free' ? 'Basic features' : 'Team features', included: tierConfig.teamFeatures || plan.tier === 'free' },
+            { name: 'Priority support', included: tierConfig.prioritySupport === 'phone' || tierConfig.prioritySupport === 'chat' }
+          ],
+          icon: plan.tier === 'enterprise' ? Building2 : plan.tier === 'team' ? Users : Zap,
+          popular: plan.popular || false,
+          buttonText: isCurrentTier ? 'Current Plan' : `Upgrade to ${plan.tier.charAt(0).toUpperCase() + plan.tier.slice(1)}`,
+          buttonVariant: isCurrentTier ? 'outline' : 'primary',
+          interval: plan.interval,
+          stripePriceId: plan.stripePriceId
+        } as Plan
+      })
+  }, [config, formatFileSize, getProcessingSpeedText, getSupportTypeText, billingInterval, userTier])
+
+
+  const handleUpgrade = async (plan: Plan) => {
+    if (plan.tier === userTier) return
+
+    setUpgrading(plan.id)
     try {
-      console.log(`Attempting to upgrade to ${targetTier}...`)
-      const success = await upgradeUserTier(targetTier)
-      if (success) {
-        // Upgrade successful - the store will update automatically
-        console.log(`Successfully upgraded to ${targetTier}`)
+      if (subscriptionService.isTestingMode()) {
+        // Testing mode - use existing upgrade function
+        const success = await upgradeUserTier(plan.tier, plan.id)
+        if (!success) {
+          alert(`Upgrade failed: ${error?.message || 'Unknown error'}`)
+        }
       } else {
-        console.error('Upgrade failed. Error details:', error)
-        alert(`Upgrade failed: ${error?.message || 'Unknown error'}`)
+        // Production mode - use auth store which handles Stripe
+        const success = await upgradeUserTier(plan.tier, plan.id)
+        if (!success) {
+          alert(`Upgrade failed: ${error?.message || 'Unknown error'}`)
+        }
       }
-    } catch (error) {
-      console.error('Upgrade error:', error)
-      alert(`Upgrade error: ${error instanceof Error ? error.message : 'Unknown error'}`)
+    } catch (err) {
+      alert(`Upgrade error: ${err instanceof Error ? err.message : 'Unknown error'}`)
     } finally {
       setUpgrading(null)
+    }
+  }
+
+  const handleManageSubscription = async () => {
+    if (!user?.id) return
+
+    try {
+      await subscriptionService.manageSubscription(user.id)
+    } catch (err) {
+      alert(`Error: ${err instanceof Error ? err.message : 'Failed to open subscription management'}`)
     }
   }
 
@@ -175,9 +245,53 @@ export default function PlansPage() {
           <p className="text-xl text-gray-600 mb-6">
             Optimize more images with the perfect plan for your needs
           </p>
-          <div className="inline-flex items-center gap-2 bg-green-100 text-green-800 px-4 py-2 rounded-full text-sm font-medium">
-            🎉 All plans are currently FREE for testing!
+          
+          {/* Billing Interval Toggle */}
+          <div className="flex items-center justify-center gap-4 mb-6">
+            <button
+              onClick={() => setBillingInterval('month')}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                billingInterval === 'month'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              Monthly
+            </button>
+            <button
+              onClick={() => setBillingInterval('year')}
+              className={`px-4 py-2 rounded-lg font-medium transition-colors ${
+                billingInterval === 'year'
+                  ? 'bg-blue-600 text-white'
+                  : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+              }`}
+            >
+              Yearly
+              <span className="ml-1 text-xs bg-green-500 text-white px-2 py-1 rounded-full">
+                Save 2 months
+              </span>
+            </button>
           </div>
+
+          {/* Testing Mode Notice */}
+          {subscriptionService.isTestingMode() && (
+            <div className="inline-flex items-center gap-2 bg-green-100 text-green-800 px-4 py-2 rounded-full text-sm font-medium">
+              🎉 All plans are currently FREE for testing!
+            </div>
+          )}
+
+          {/* Manage Subscription Button */}
+          {canManageSubscription && !subscriptionService.isTestingMode() && (
+            <div className="mt-4">
+              <button
+                onClick={handleManageSubscription}
+                className="inline-flex items-center gap-2 bg-gray-100 text-gray-700 px-4 py-2 rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                <Settings className="h-4 w-4" />
+                Manage Subscription
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Current Usage Stats */}
@@ -279,17 +393,20 @@ export default function PlansPage() {
                 </ul>
 
                 <button
-                  onClick={() => handleUpgrade(plan.id)}
-                  disabled={status === 'current' || isUpgrading}
-                  className={`w-full py-3 px-4 rounded-lg font-medium transition-colors ${
-                    getButtonVariant(plan) === 'primary'
+                  onClick={() => handleUpgrade(plan)}
+                  disabled={plan.tier === userTier || isUpgrading}
+                  className={`w-full py-3 px-4 rounded-lg font-medium transition-colors flex items-center justify-center gap-2 ${
+                    plan.buttonVariant === 'primary'
                       ? 'bg-blue-600 text-white hover:bg-blue-700 disabled:bg-blue-400'
-                      : getButtonVariant(plan) === 'secondary'
+                      : plan.buttonVariant === 'secondary'
                       ? 'bg-gray-600 text-white hover:bg-gray-700 disabled:bg-gray-400'
                       : 'bg-gray-100 text-gray-600 border border-gray-300 hover:bg-gray-200 disabled:bg-gray-100'
                   }`}
                 >
-                  {isUpgrading ? 'Processing...' : getButtonText(plan)}
+                  {plan.tier !== 'free' && !subscriptionService.isTestingMode() && (
+                    <CreditCard className="h-4 w-4" />
+                  )}
+                  {isUpgrading ? 'Processing...' : plan.buttonText}
                 </button>
               </div>
             )
@@ -297,16 +414,34 @@ export default function PlansPage() {
         </div>
 
         {/* Testing Note */}
-        <div className="mt-12 bg-yellow-50 border border-yellow-200 rounded-lg p-6">
-          <h3 className="text-lg font-semibold text-yellow-800 mb-2">Testing Mode</h3>
-          <p className="text-yellow-700 mb-4">
-            All plans are currently free for testing. You can upgrade between any tier to test the functionality.
-            To change pricing later, update the plans array in <code className="bg-yellow-100 px-2 py-1 rounded">src/pages/PlansPage.tsx</code>.
-          </p>
-          <div className="text-sm text-yellow-600">
-            <strong>To enable real pricing:</strong> Replace "Free" with actual prices and integrate with your payment provider.
+        {subscriptionService.isTestingMode() && (
+          <div className="mt-12 bg-yellow-50 border border-yellow-200 rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-yellow-800 mb-2">Testing Mode</h3>
+            <p className="text-yellow-700 mb-4">
+              All plans are currently free for testing. You can upgrade between any tier to test the functionality.
+              To enable real Stripe payments, set <code className="bg-yellow-100 px-2 py-1 rounded">testingMode = false</code> in the SubscriptionService.
+            </p>
+            <div className="text-sm text-yellow-600">
+              <strong>To enable real pricing:</strong> Stripe integration is ready. Update your Stripe Price IDs in the environment variables and disable testing mode.
+            </div>
           </div>
-        </div>
+        )}
+
+        {/* Stripe Integration Info */}
+        {!subscriptionService.isTestingMode() && (
+          <div className="mt-12 bg-blue-50 border border-blue-200 rounded-lg p-6">
+            <h3 className="text-lg font-semibold text-blue-800 mb-2">💳 Secure Payments</h3>
+            <p className="text-blue-700 mb-2">
+              Payments are processed securely through Stripe. Your payment information is never stored on our servers.
+            </p>
+            <div className="text-sm text-blue-600 space-y-1">
+              <div>• 256-bit SSL encryption</div>
+              <div>• PCI DSS compliant</div>
+              <div>• Cancel anytime</div>
+              <div>• Instant activation</div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   )

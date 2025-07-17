@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useTierConfig } from '@/hooks/useTierConfig'
 import { TierComparisonChart, TierComparisonMini } from './TierComparisonChart'
 import { ImageLimitSlider, FileSizeSlider, BatchSizeSlider } from './TierLimitSlider'
@@ -24,11 +24,14 @@ export function TierConfigAdmin({
   compactMode = false 
 }: TierConfigAdminProps) {
   const {
-    config,
+    pendingConfig,
     isLoading,
     error,
     hasUnsavedChanges,
-    updateTierConfig,
+    hasPendingChanges,
+    updatePendingTierConfig,
+    savePendingChanges,
+    discardPendingChanges,
     resetToDefaults,
     exportConfig,
     importConfig,
@@ -41,17 +44,32 @@ export function TierConfigAdmin({
   const [showImportDialog, setShowImportDialog] = useState(false)
   const [importText, setImportText] = useState('')
   const [saveMessage, setSaveMessage] = useState<string | null>(null)
+  const [showDiscardDialog, setShowDiscardDialog] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
 
-  const handleTierUpdate = async (tier: UserTier, field: keyof TierLimits, value: any) => {
-    const currentLimits = config[tier]
+  const handleTierUpdate = (tier: UserTier, field: keyof TierLimits, value: unknown) => {
+    const currentLimits = pendingConfig[tier]
     const newLimits = { ...currentLimits, [field]: value }
-    
-    const success = await updateTierConfig(tier, newLimits)
+    updatePendingTierConfig(tier, newLimits)
+  }
+
+  const handleSave = async () => {
+    const success = await savePendingChanges()
     if (success) {
-      setSaveMessage(`${TIER_INFO[tier].name} updated successfully`)
+      setSaveMessage('Configuration saved successfully')
       setTimeout(() => setSaveMessage(null), 3000)
     }
+  }
+
+  const handleDiscard = () => {
+    setShowDiscardDialog(true)
+  }
+
+  const confirmDiscard = () => {
+    discardPendingChanges()
+    setShowDiscardDialog(false)
+    setSaveMessage('Changes discarded')
+    setTimeout(() => setSaveMessage(null), 3000)
   }
 
   const handleExport = () => {
@@ -76,7 +94,7 @@ export function TierConfigAdmin({
         setSaveMessage('Configuration imported successfully')
         setTimeout(() => setSaveMessage(null), 3000)
       }
-    } catch (err) {
+    } catch {
       // Error is handled by the hook
     }
   }
@@ -94,7 +112,27 @@ export function TierConfigAdmin({
     }
   }
 
-  const validation = validateConfig(config)
+  const validation = validateConfig(pendingConfig)
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey || e.metaKey) {
+        if (e.key === 's') {
+          e.preventDefault()
+          if (hasPendingChanges && validation.isValid) {
+            void handleSave()
+          }
+        } else if (e.key === 'z' && hasPendingChanges) {
+          e.preventDefault()
+          handleDiscard()
+        }
+      }
+    }
+
+    document.addEventListener('keydown', handleKeyDown)
+    return () => document.removeEventListener('keydown', handleKeyDown)
+  }, [hasPendingChanges, validation.isValid, handleSave, handleDiscard])
 
   return (
     <div className={`space-y-6 ${className}`}>
@@ -109,30 +147,57 @@ export function TierConfigAdmin({
           </div>
           
           <div className="flex flex-wrap gap-2">
+            {/* Save/Discard buttons - only show when there are pending changes */}
+            {hasPendingChanges && (
+              <>
+                <button
+                  onClick={handleDiscard}
+                  disabled={isLoading}
+                  className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Discard changes (Ctrl+Z)"
+                >
+                  🚫 Discard Changes
+                </button>
+                <button
+                  onClick={() => void handleSave()}
+                  disabled={isLoading || !validation.isValid}
+                  className="px-3 py-2 text-sm bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Save changes (Ctrl+S)"
+                >
+                  {isLoading ? '💾 Saving...' : '💾 Save Changes'}
+                </button>
+                <div className="w-px h-8 bg-gray-300 mx-1"></div>
+              </>
+            )}
+            
             <button
               onClick={() => fileInputRef.current?.click()}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              disabled={isLoading}
+              className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               📁 Import
             </button>
             
             <button
               onClick={handleExport}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              disabled={isLoading}
+              className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               📤 Export
             </button>
             
             <button
               onClick={clearStoredConfig}
-              className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
+              disabled={isLoading || hasPendingChanges}
+              className="px-3 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               🔄 Reset Storage
             </button>
             
             <button
               onClick={resetToDefaults}
-              className="px-3 py-2 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors"
+              disabled={isLoading || hasPendingChanges}
+              className="px-3 py-2 text-sm bg-orange-600 text-white rounded-lg hover:bg-orange-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               ⚠️ Reset to Defaults
             </button>
@@ -173,10 +238,38 @@ export function TierConfigAdmin({
           </div>
         )}
 
+        {hasPendingChanges && (
+          <div className="mb-4 bg-yellow-50 border border-yellow-200 rounded-lg p-3">
+            <div className="flex items-center justify-between">
+              <div className="text-sm text-yellow-700">
+                ⚠️ You have unsaved changes
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={handleDiscard}
+                  disabled={isLoading}
+                  className="px-3 py-1 text-xs border border-gray-300 rounded hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Discard changes (Ctrl+Z)"
+                >
+                  Discard
+                </button>
+                <button
+                  onClick={() => void handleSave()}
+                  disabled={isLoading || !validation.isValid}
+                  className="px-3 py-1 text-xs bg-blue-600 text-white rounded hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                  title="Save changes (Ctrl+S)"
+                >
+                  {isLoading ? 'Saving...' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
         {hasUnsavedChanges && (
-          <div className="mb-4 bg-blue-50 border border-blue-200 rounded-lg p-3">
-            <div className="text-sm text-blue-700">
-              ✓ Changes saved automatically
+          <div className="mb-4 bg-green-50 border border-green-200 rounded-lg p-3">
+            <div className="text-sm text-green-700">
+              ✓ Changes saved successfully
             </div>
           </div>
         )}
@@ -213,7 +306,7 @@ export function TierConfigAdmin({
               {Object.entries(TIER_INFO).map(([tier, info]) => {
                 if (activeTab !== tier) return null
                 
-                const tierConfig = config[tier as UserTier]
+                const tierConfig = pendingConfig[tier as UserTier]
                 const tierColor = info.color
 
                 return (
@@ -328,9 +421,9 @@ export function TierConfigAdmin({
         {showComparison && (
           <div className={compactMode ? '' : 'xl:col-span-1'}>
             {compactMode ? (
-              <TierComparisonMini config={config} />
+              <TierComparisonMini config={pendingConfig} />
             ) : (
-              <TierComparisonChart config={config} />
+              <TierComparisonChart config={pendingConfig} />
             )}
           </div>
         )}
@@ -385,6 +478,44 @@ export function TierConfigAdmin({
               >
                 {isLoading ? 'Importing...' : 'Import'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Discard Confirmation Dialog */}
+      {showDiscardDialog && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+          <div className="bg-white rounded-lg max-w-md w-full">
+            <div className="flex items-center justify-between p-4 border-b border-gray-200">
+              <h3 className="text-lg font-semibold text-gray-900">Discard Changes</h3>
+              <button
+                onClick={() => setShowDiscardDialog(false)}
+                className="text-gray-400 hover:text-gray-600"
+              >
+                ×
+              </button>
+            </div>
+            
+            <div className="p-4">
+              <p className="text-sm text-gray-600 mb-4">
+                Are you sure you want to discard all pending changes? This action cannot be undone.
+              </p>
+              
+              <div className="flex items-center justify-end gap-3">
+                <button
+                  onClick={() => setShowDiscardDialog(false)}
+                  className="px-4 py-2 text-sm border border-gray-300 rounded-lg hover:bg-gray-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDiscard}
+                  className="px-4 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700"
+                >
+                  Discard Changes
+                </button>
+              </div>
             </div>
           </div>
         </div>

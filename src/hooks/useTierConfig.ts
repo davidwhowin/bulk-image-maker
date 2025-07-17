@@ -5,6 +5,7 @@ import type { TierConfig, TierLimits, UserTier } from '@/types/tiers'
 interface UseTierConfigReturn {
   // Current configuration
   config: TierConfig
+  pendingConfig: TierConfig
   isLoading: boolean
   error: string | null
   
@@ -12,6 +13,12 @@ interface UseTierConfigReturn {
   updateTierConfig: (tier: UserTier, limits: TierLimits) => Promise<boolean>
   updateFullConfig: (newConfig: TierConfig) => Promise<boolean>
   resetToDefaults: () => void
+  
+  // Pending changes management
+  updatePendingTierConfig: (tier: UserTier, limits: TierLimits) => void
+  updatePendingFullConfig: (newConfig: TierConfig) => void
+  savePendingChanges: () => Promise<boolean>
+  discardPendingChanges: () => void
   
   // Import/Export
   exportConfig: () => string
@@ -32,23 +39,37 @@ interface UseTierConfigReturn {
   
   // Status
   hasUnsavedChanges: boolean
+  hasPendingChanges: boolean
+  
+  // Utilities
+  clearError: () => void
 }
 
 export function useTierConfig(): UseTierConfigReturn {
   const [config, setConfig] = useState<TierConfig>(() => tierConfigManager.getConfiguration())
+  const [pendingConfig, setPendingConfig] = useState<TierConfig>(() => tierConfigManager.getConfiguration())
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+  const [hasPendingChanges, setHasPendingChanges] = useState(false)
 
   // Subscribe to configuration changes
   useEffect(() => {
     const unsubscribe = tierConfigManager.subscribe((newConfig) => {
       setConfig(newConfig)
+      setPendingConfig(newConfig)
       setHasUnsavedChanges(false)
+      setHasPendingChanges(false)
     })
 
     return unsubscribe
   }, [])
+
+  // Check for pending changes
+  useEffect(() => {
+    const hasChanges = JSON.stringify(config) !== JSON.stringify(pendingConfig)
+    setHasPendingChanges(hasChanges)
+  }, [config, pendingConfig])
 
   const updateTierConfig = useCallback(async (tier: UserTier, limits: TierLimits): Promise<boolean> => {
     setIsLoading(true)
@@ -95,6 +116,7 @@ export function useTierConfig(): UseTierConfigReturn {
     try {
       tierConfigManager.resetToDefaults()
       setHasUnsavedChanges(false)
+      setHasPendingChanges(false)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to reset configuration'
       setError(errorMessage)
@@ -102,6 +124,42 @@ export function useTierConfig(): UseTierConfigReturn {
       setIsLoading(false)
     }
   }, [])
+
+  const updatePendingTierConfig = useCallback((tier: UserTier, limits: TierLimits) => {
+    setPendingConfig(prev => ({
+      ...prev,
+      [tier]: limits
+    }))
+  }, [])
+
+  const updatePendingFullConfig = useCallback((newConfig: TierConfig) => {
+    setPendingConfig(newConfig)
+  }, [])
+
+  const savePendingChanges = useCallback(async (): Promise<boolean> => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const success = tierConfigManager.updateConfiguration(pendingConfig)
+      if (success) {
+        setHasUnsavedChanges(false)
+        setHasPendingChanges(false)
+      }
+      return success
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to save pending changes'
+      setError(errorMessage)
+      return false
+    } finally {
+      setIsLoading(false)
+    }
+  }, [pendingConfig])
+
+  const discardPendingChanges = useCallback(() => {
+    setPendingConfig(config)
+    setHasPendingChanges(false)
+  }, [config])
 
   const exportConfig = useCallback((): string => {
     return tierConfigManager.exportConfiguration()
@@ -115,6 +173,7 @@ export function useTierConfig(): UseTierConfigReturn {
       const success = tierConfigManager.importConfiguration(jsonString)
       if (success) {
         setHasUnsavedChanges(false)
+        setHasPendingChanges(false)
       }
       return success
     } catch (err) {
@@ -133,6 +192,7 @@ export function useTierConfig(): UseTierConfigReturn {
     try {
       tierConfigManager.clearStoredConfiguration()
       setHasUnsavedChanges(false)
+      setHasPendingChanges(false)
     } catch (err) {
       const errorMessage = err instanceof Error ? err.message : 'Failed to clear stored configuration'
       setError(errorMessage)
@@ -218,14 +278,22 @@ export function useTierConfig(): UseTierConfigReturn {
   return {
     // Current state
     config,
+    pendingConfig,
     isLoading,
     error,
     hasUnsavedChanges,
+    hasPendingChanges,
     
     // Actions
     updateTierConfig,
     updateFullConfig,
     resetToDefaults,
+    
+    // Pending changes management
+    updatePendingTierConfig,
+    updatePendingFullConfig,
+    savePendingChanges,
+    discardPendingChanges,
     
     // Import/Export
     exportConfig,

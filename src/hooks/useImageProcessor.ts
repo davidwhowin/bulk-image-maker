@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useStore } from '@/store';
 import { useAuthStore } from '@/lib/auth-store';
 import { imageProcessor, type ProcessingProgress, type ProcessingResult } from '@/lib/image-processor';
@@ -16,8 +16,14 @@ export function useImageProcessor() {
     resetStats 
   } = useStore();
   
-  const { isAuthenticated, updateUsageStats, checkFileUploadLimits } = useAuthStore();
+  const { isAuthenticated, updateUsageStats, checkFileUploadLimits, currentUsage, tierLimits } = useAuthStore();
   const processingStartTime = useRef<number>(0);
+  const [showLimitModal, setShowLimitModal] = useState(false);
+  const [limitModalData, setLimitModalData] = useState<{
+    message: string;
+    currentUsage?: number;
+    maxImages?: number;
+  }>({ message: '' });
 
   const processFiles = useCallback(async () => {
     if (files.length === 0) {
@@ -36,7 +42,14 @@ export function useImageProcessor() {
         const limitCheck = await checkFileUploadLimits(files.map(f => f.file));
         if (!limitCheck.canProcess) {
           console.warn('Processing blocked by tier limits:', limitCheck.message);
-          alert(limitCheck.message); // Show user-friendly message
+          
+          // Show the monthly limit modal instead of alert
+          setLimitModalData({
+            message: limitCheck.message || 'You have reached your monthly processing limit.',
+            currentUsage: currentUsage?.imagesProcessed,
+            maxImages: tierLimits?.maxImagesPerMonth
+          });
+          setShowLimitModal(true);
           return;
         }
       } catch (error) {
@@ -194,7 +207,9 @@ export function useImageProcessor() {
     resetStats,
     isAuthenticated,
     updateUsageStats,
-    checkFileUploadLimits
+    checkFileUploadLimits,
+    currentUsage,
+    tierLimits
   ]);
 
   const abortProcessing = useCallback(() => {
@@ -212,6 +227,10 @@ export function useImageProcessor() {
     canProcess,
     canAbort,
     isProcessing,
-    stats: imageProcessor.getProcessingStats()
+    stats: imageProcessor.getProcessingStats(),
+    // Monthly limit modal state
+    showLimitModal,
+    setShowLimitModal,
+    limitModalData
   };
 }

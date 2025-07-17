@@ -10,6 +10,8 @@ This is a modern, browser-based bulk image compression and optimization tool ins
 
 ### Development
 - `npm run dev` - Start development server (usually on port 3000/3001)
+- `npm run dev:api` - Start Express API server for webhooks (port 3001)
+- `npm run dev:full` - Start both frontend and API server concurrently
 - `npm run build` - Build for production with TypeScript checking
 - `npm run preview` - Preview production build locally
 
@@ -193,6 +195,34 @@ import type { ImageFile } from '@/types';
 - User-friendly error messages with actionable feedback
 - Memory error recovery with automatic cleanup
 
+## Payment System Integration
+
+### Stripe Payment Processing
+The application includes a complete Stripe payment system with:
+- **Hosted Checkout**: Secure payment processing via Stripe-hosted pages
+- **Webhook Integration**: Automatic tier upgrades via Express.js webhook server
+- **Subscription Management**: Customer portal for billing management
+- **Fallback Mechanisms**: Manual tier update system for database quota issues
+- **Error Handling**: Comprehensive error recovery and user feedback
+
+### Development Workflow
+For full payment testing, run three services:
+1. **Frontend**: `npm run dev` (port 3000)
+2. **API Server**: `npm run dev:api` (port 3001)
+3. **Webhook Forwarding**: `./scripts/stripe-listen.sh`
+
+### Production Deployment
+- **Webhook Endpoint**: Configure in Stripe Dashboard pointing to your API server
+- **Environment Variables**: All sensitive data via environment variables
+- **Error Monitoring**: Comprehensive logging for webhook processing
+- **Quota Handling**: Automatic fallback for BigQuery quota exceeded errors
+
+### Key Files
+- `server.js` - Express server with webhook handling
+- `src/lib/stripe-checkout.ts` - Stripe integration service
+- `src/pages/PlansPage.tsx` - Payment UI with fallback handling
+- `src/lib/auth-store.ts` - Authentication and tier management
+
 ## Browser Compatibility
 
 ### Modern Web APIs
@@ -247,6 +277,10 @@ The project documentation is organized in the `/docs` directory for better maint
   - Plan switching fixes
   - Monetization strategy
   - Supabase integration updates
+  - Stripe payment system implementation
+  - BigQuery quota issue resolution
+- **[/docs/stripe-setup.md](/docs/stripe-setup.md)** - Complete Stripe payment integration guide
+- **[/docs/stripe-webhook-setup.md](/docs/stripe-webhook-setup.md)** - Webhook configuration and troubleshooting
 - **[/docs/changelog.md](/docs/changelog.md)** - Version history and release notes
 
 ### Reference

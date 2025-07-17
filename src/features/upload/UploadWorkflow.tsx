@@ -2,6 +2,7 @@ import { useCallback, useState } from 'react';
 import { UserUploadArea } from '@/components';
 import { FolderStructureSettings, FolderTreeView } from '@/components/folder';
 import { ImageProcessingSettings } from '@/components/processing/ImageProcessingSettings';
+import { MonthlyLimitModal } from '@/components/common/MonthlyLimitModal';
 import { useStore } from '@/store';
 import { useImageProcessor } from '@/hooks/useImageProcessor';
 import { FilePreviewGrid } from './FilePreviewGrid';
@@ -11,7 +12,16 @@ import type { UploadResult } from '@/types';
 export function UploadWorkflow() {
   const { files, addFiles, removeFile, clearFiles } = useStore();
   const [error, setError] = useState<string | null>(null);
-  const { processFiles, abortProcessing, canProcess, canAbort, isProcessing } = useImageProcessor();
+  const { 
+    processFiles, 
+    abortProcessing, 
+    canProcess, 
+    canAbort, 
+    isProcessing,
+    showLimitModal,
+    setShowLimitModal,
+    limitModalData
+  } = useImageProcessor();
 
   const handleFilesSelected = useCallback((result: UploadResult) => {
     try {
@@ -135,6 +145,15 @@ export function UploadWorkflow() {
           : 'No files uploaded'
         }
       </div>
+
+      {/* Monthly Limit Modal */}
+      <MonthlyLimitModal
+        isOpen={showLimitModal}
+        onClose={() => setShowLimitModal(false)}
+        message={limitModalData.message}
+        currentUsage={limitModalData.currentUsage}
+        maxImages={limitModalData.maxImages}
+      />
     </div>
   );
 }

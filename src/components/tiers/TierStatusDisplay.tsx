@@ -1,5 +1,6 @@
 import { useAuthStore } from '@/lib/auth-store'
 import { formatFileSize } from '@/lib/tier-config'
+import { useNavigate } from 'react-router-dom'
 
 interface TierStatusDisplayProps {
   className?: string
@@ -7,6 +8,7 @@ interface TierStatusDisplayProps {
 
 export function TierStatusDisplay({ className = '' }: TierStatusDisplayProps) {
   const { userTier, currentUsage, tierLimits } = useAuthStore()
+  const navigate = useNavigate()
 
   if (!tierLimits || !currentUsage) {
     return null
@@ -89,7 +91,10 @@ export function TierStatusDisplay({ className = '' }: TierStatusDisplayProps) {
                     : 'Consider upgrading to Pro for unlimited processing.'
                   }
                 </p>
-                <button className={`mt-2 text-sm font-medium ${isAtLimit ? 'text-red-600 hover:text-red-500' : 'text-yellow-600 hover:text-yellow-500'} underline`}>
+                <button 
+                  onClick={() => navigate('/plans')}
+                  className={`mt-2 text-sm font-medium ${isAtLimit ? 'text-red-600 hover:text-red-500' : 'text-yellow-600 hover:text-yellow-500'} underline`}
+                >
                   Upgrade Now
                 </button>
               </div>

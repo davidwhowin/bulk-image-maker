@@ -10,8 +10,10 @@ import type { UserTier } from '@/types/auth'
 import type { UsageStats } from '@/types/tiers'
 import { TIER_LIMITS } from './tier-config'
 import { supabase } from './supabase'
+import { stripeCheckoutService } from './stripe-checkout'
+import { STRIPE_PRICE_IDS } from './stripe-client'
 
-// Mock subscription plans - in production these would come from Stripe
+// Real subscription plans with Stripe integration
 export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   {
     id: 'free',
@@ -31,7 +33,7 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   {
     id: 'pro-monthly',
     tier: 'pro',
-    name: 'Pro',
+    name: 'Pro Monthly',
     description: 'Ideal for freelancers and small businesses',
     price: 29,
     interval: 'month',
@@ -44,12 +46,30 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
       'Email support'
     ],
     popular: true,
-    stripePriceId: 'price_pro_monthly'
+    stripePriceId: STRIPE_PRICE_IDS.pro_monthly
+  },
+  {
+    id: 'pro-yearly',
+    tier: 'pro',
+    name: 'Pro Yearly',
+    description: 'Ideal for freelancers and small businesses (Save 2 months!)',
+    price: 290,
+    interval: 'year',
+    features: [
+      '3,000 images per month',
+      '25MB max file size',
+      '10 image batch processing',
+      'All formats + WebP, AVIF, JPEG XL',
+      'Fast processing (10-15 seconds)',
+      'Email support',
+      '2 months free vs monthly'
+    ],
+    stripePriceId: STRIPE_PRICE_IDS.pro_yearly
   },
   {
     id: 'team-monthly',
     tier: 'team',
-    name: 'Team',
+    name: 'Team Monthly',
     description: 'Perfect for agencies and growing teams',
     price: 149,
     interval: 'month',
@@ -62,12 +82,31 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
       'Team collaboration features',
       'Live chat support'
     ],
-    stripePriceId: 'price_team_monthly'
+    stripePriceId: STRIPE_PRICE_IDS.team_monthly
+  },
+  {
+    id: 'team-yearly',
+    tier: 'team',
+    name: 'Team Yearly',
+    description: 'Perfect for agencies and growing teams (Save 2 months!)',
+    price: 1490,
+    interval: 'year',
+    features: [
+      '15,000 images per month',
+      '100MB max file size',
+      '50 image batch processing',
+      'All formats + SVG optimization',
+      'Ultra-fast processing (3-5 seconds)',
+      'Team collaboration features',
+      'Live chat support',
+      '2 months free vs monthly'
+    ],
+    stripePriceId: STRIPE_PRICE_IDS.team_yearly
   },
   {
     id: 'enterprise-monthly',
     tier: 'enterprise',
-    name: 'Enterprise',
+    name: 'Enterprise Monthly',
     description: 'For large organizations with custom needs',
     price: 499,
     interval: 'month',
@@ -81,12 +120,32 @@ export const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
       'Priority phone support',
       'Custom integrations'
     ],
-    stripePriceId: 'price_enterprise_monthly'
+    stripePriceId: STRIPE_PRICE_IDS.enterprise_monthly
+  },
+  {
+    id: 'enterprise-yearly',
+    tier: 'enterprise',
+    name: 'Enterprise Yearly',
+    description: 'For large organizations with custom needs (Save 2 months!)',
+    price: 4990,
+    interval: 'year',
+    features: [
+      '75,000 images per month',
+      '500MB max file size',
+      '500 image batch processing',
+      'All formats + custom processing',
+      'Instant processing (1-2 seconds)',
+      'Advanced team features',
+      'Priority phone support',
+      'Custom integrations',
+      '2 months free vs monthly'
+    ],
+    stripePriceId: STRIPE_PRICE_IDS.enterprise_yearly
   }
 ]
 
 export class SubscriptionService {
-  private testingMode = true // Set to true for testing - all plans are free
+  private testingMode = false // Set to false to enable real Stripe payments
 
   // Method to enable/disable testing mode
   setTestingMode(enabled: boolean): void {
@@ -94,8 +153,14 @@ export class SubscriptionService {
     console.log(`Subscription testing mode ${enabled ? 'enabled' : 'disabled'}`)
   }
 
+  // Method to check if testing mode is enabled
+  isTestingMode(): boolean {
+    return this.testingMode
+  }
+
   async getCurrentSubscription(userId: string): Promise<Subscription | null> {
     try {
+      console.log('📊 Querying subscriptions table for user:', userId)
       const { data, error } = await supabase
         .from('subscriptions')
         .select('*')
@@ -103,14 +168,17 @@ export class SubscriptionService {
         .single()
 
       if (error) {
+        console.error('💥 Error fetching subscription:', error)
+        console.error('💥 Subscription error details:', JSON.stringify(error, null, 2))
         // If no subscription found, that's OK - return null
         if (error.code === 'PGRST116') {
+          console.log('ℹ️  No subscription found for user (expected for new users)')
           return null
         }
-        console.error('Error fetching subscription:', error)
         return null
       }
 
+      console.log('✅ Subscription data retrieved:', data)
       return {
         id: data.id,
         userId: data.user_id,
@@ -125,7 +193,8 @@ export class SubscriptionService {
         updatedAt: data.updated_at
       }
     } catch (error) {
-      console.error('Failed to get subscription:', error)
+      console.error('💥 Failed to get subscription:', error)
+      console.error('💥 Subscription service error details:', JSON.stringify(error, null, 2))
       return null
     }
   }
@@ -233,22 +302,53 @@ export class SubscriptionService {
   async upgradeSubscription(
     userId: string,
     targetTier: UserTier,
-    paymentMethodId?: string
+    planId?: string,
+    userEmail?: string
   ): Promise<UpgradeResult> {
     try {
       const currentSubscription = await this.getCurrentSubscription(userId)
-      const targetPlan = await this.getPlanByTier(targetTier)
+      
+      // Get the plan to upgrade to
+      const targetPlan = planId 
+        ? SUBSCRIPTION_PLANS.find(p => p.id === planId)
+        : await this.getPlanByTier(targetTier)
 
       if (!targetPlan) {
         return { success: false, error: 'Invalid subscription plan' }
       }
 
-      // For paid plans, check if payment method is required (skip in testing mode)
-      if (!this.testingMode && targetTier !== 'free' && !paymentMethodId && !currentSubscription) {
-        return { 
-          success: false, 
-          requiresPaymentMethod: true,
-          error: 'Payment method required for paid plans'
+      // If not testing mode and it's a paid plan, redirect to Stripe checkout
+      if (!this.testingMode && targetTier !== 'free' && targetPlan.stripePriceId) {
+        if (!userEmail) {
+          return { 
+            success: false, 
+            requiresPaymentMethod: true,
+            error: 'User email required for Stripe checkout'
+          }
+        }
+
+        try {
+          // Redirect to Stripe checkout
+          await stripeCheckoutService.redirectToCheckout({
+            priceId: targetPlan.stripePriceId,
+            userId,
+            userEmail,
+            successUrl: `${window.location.origin}/plans?success=true&tier=${targetTier}`,
+            cancelUrl: `${window.location.origin}/plans?canceled=true`,
+            tier: targetTier
+          })
+
+          // This won't be reached as redirectToCheckout navigates away
+          return { 
+            success: true, 
+            redirectedToCheckout: true 
+          }
+        } catch (error) {
+          console.error('Stripe checkout error:', error)
+          return { 
+            success: false, 
+            error: error instanceof Error ? error.message : 'Checkout failed'
+          }
         }
       }
 
@@ -473,6 +573,49 @@ export class SubscriptionService {
     } catch (error) {
       console.error('Failed to update billing info:', error)
       return false
+    }
+  }
+
+  async manageSubscription(userId: string): Promise<void> {
+    try {
+      const subscription = await this.getCurrentSubscription(userId)
+      
+      if (!subscription || !subscription.stripeCustomerId) {
+        throw new Error('No active subscription found')
+      }
+
+      // Redirect to Stripe customer portal
+      await stripeCheckoutService.redirectToCustomerPortal(
+        subscription.stripeCustomerId,
+        `${window.location.origin}/plans`
+      )
+    } catch (error) {
+      console.error('Error managing subscription:', error)
+      throw error
+    }
+  }
+
+  async getUpgradeUrl(userId: string, targetTier: UserTier, planId: string, userEmail: string): Promise<string | null> {
+    const targetPlan = SUBSCRIPTION_PLANS.find(p => p.id === planId)
+    
+    if (!targetPlan || !targetPlan.stripePriceId || targetTier === 'free') {
+      return null
+    }
+
+    try {
+      const sessionData = await stripeCheckoutService.createCheckoutSession({
+        priceId: targetPlan.stripePriceId,
+        userId,
+        userEmail,
+        successUrl: `${window.location.origin}/plans?success=true&tier=${targetTier}`,
+        cancelUrl: `${window.location.origin}/plans?canceled=true`,
+        tier: targetTier
+      })
+
+      return sessionData?.url || null
+    } catch (error) {
+      console.error('Error creating upgrade URL:', error)
+      return null
     }
   }
 

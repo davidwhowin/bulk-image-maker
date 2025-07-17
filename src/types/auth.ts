@@ -55,7 +55,8 @@ export interface AuthActions {
   getTierLimits: () => TierLimits | null
   
   // Subscription-related actions
-  upgradeUserTier: (targetTier: UserTier, paymentMethodId?: string) => Promise<boolean>
+  upgradeUserTier: (targetTier: UserTier, planId?: string) => Promise<boolean>
   cancelSubscription: (immediate?: boolean) => Promise<boolean>
   getSubscriptionRecommendation: () => Promise<UsageBasedRecommendation | null>
+  refreshSubscriptionStatus: () => Promise<void>
 }

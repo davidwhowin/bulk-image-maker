@@ -446,7 +446,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
       supabase.auth.onAuthStateChange(async (event, session) => {
         if (event === 'SIGNED_IN' && session?.user) {
           // Fetch user profile to get tier information
-          const { data: profile, error: profileError } = await supabase
+          let { data: profile, error: profileError } = await supabase
             .from('user_profiles')
             .select('user_tier, is_admin')
             .eq('id', session.user.id)
@@ -454,13 +454,28 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
 
           if (profileError) {
             console.error('Profile fetch error during auth state change:', profileError)
+            // If profile doesn't exist, create it
+            if (profileError.code === 'PGRST116') {
+              const { error: createError } = await supabase
+                .from('user_profiles')
+                .insert({
+                  id: session.user.id,
+                  user_tier: 'free',
+                  is_admin: false
+                })
+              
+              if (!createError) {
+                // Profile created successfully, use default values
+                profile = { user_tier: 'free', is_admin: false }
+              }
+            }
           }
 
           const user: User = {
             id: session.user.id,
             email: session.user.email!,
             userTier: profile?.user_tier || 'free',
-          isAdmin: profile?.is_admin || false,
+            isAdmin: profile?.is_admin || false,
             createdAt: session.user.created_at,
             lastLoginAt: new Date().toISOString()
           }
@@ -549,7 +564,7 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
   },
 
   // Subscription-related actions
-  upgradeUserTier: async (targetTier: UserTier, paymentMethodId?: string): Promise<boolean> => {
+  upgradeUserTier: async (targetTier: UserTier, planId?: string): Promise<boolean> => {
     const { user } = get()
     if (!user) {
       console.error('No user found for upgrade')
@@ -557,8 +572,14 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
     }
 
     try {
-      console.log(`Upgrading user ${user.id} to ${targetTier}`)
-      const result = await subscriptionService.upgradeSubscription(user.id, targetTier, paymentMethodId)
+      console.log(`Upgrading user ${user.id} to ${targetTier} with plan ${planId}`)
+      // Pass user email for Stripe checkout
+      const result = await subscriptionService.upgradeSubscription(
+        user.id, 
+        targetTier, 
+        planId,
+        user.email
+      )
       console.log('Subscription service result:', result)
       
       if (result.success) {
@@ -670,6 +691,58 @@ export const useAuthStore = create<AuthState & AuthActions>((set, get) => ({
     } catch (error) {
       console.error('Failed to get subscription recommendation:', error)
       return null
+    }
+  },
+
+  refreshSubscriptionStatus: async (): Promise<void> => {
+    const { user } = get()
+    if (!user) return
+
+    try {
+      console.log('🔄 Starting subscription status refresh for user:', user.id)
+      
+      // Fetch latest user profile with tier info
+      console.log('📊 Fetching user profile...')
+      const { data: profile, error: profileError } = await supabase
+        .from('user_profiles')
+        .select('user_tier, is_admin')
+        .eq('id', user.id)
+        .single()
+
+      if (profileError) {
+        console.error('💥 Error fetching updated profile:', profileError)
+        console.error('💥 Profile error details:', JSON.stringify(profileError, null, 2))
+        return
+      }
+      console.log('✅ Profile fetched:', profile)
+
+      // Also check subscription table for latest status
+      console.log('📊 Fetching subscription data...')
+      const subscription = await subscriptionService.getCurrentSubscription(user.id)
+      console.log('✅ Subscription data:', subscription)
+      
+      // Use subscription tier if available, otherwise fall back to profile tier
+      const currentTier = subscription?.tier || profile?.user_tier || 'free'
+      
+      console.log('✅ Updated tier from database:', currentTier)
+      
+      // Update state with latest tier
+      set(state => ({
+        userTier: currentTier,
+        user: state.user ? { 
+          ...state.user, 
+          userTier: currentTier,
+          isAdmin: profile?.is_admin || false 
+        } : null
+      }))
+      
+      // Refresh usage stats with new tier limits
+      console.log('📊 Refreshing usage stats...')
+      get().refreshUsageStats()
+      console.log('✅ Subscription status refresh completed')
+    } catch (error) {
+      console.error('💥 Failed to refresh subscription status:', error)
+      console.error('💥 Refresh error details:', JSON.stringify(error, null, 2))
     }
   }
 }))

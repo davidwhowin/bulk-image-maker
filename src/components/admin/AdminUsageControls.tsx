@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAdminUsageControls } from '@/hooks/useAdminUsageControls'
-import type { UsageHistoryEntry } from '@/hooks/useAdminUsageControls'
+import type { UsageHistoryEntry, UserSearchResult } from '@/hooks/useAdminUsageControls'
 
 interface AdminUsageControlsProps {
   userId?: string
@@ -9,18 +9,26 @@ interface AdminUsageControlsProps {
 
 export function AdminUsageControls({ userId = '', className = '' }: AdminUsageControlsProps) {
   const [inputUserId, setInputUserId] = useState(userId)
+  const [userEmail, setUserEmail] = useState('')
+  const [selectedUser, setSelectedUser] = useState<UserSearchResult | null>(null)
+  const [searchResults, setSearchResults] = useState<UserSearchResult[]>([])
+  const [showSearchResults, setShowSearchResults] = useState(false)
   const [imagesCount, setImagesCount] = useState(0)
   const [storageBytes, setStorageBytes] = useState(0)
   const [targetMonth, setTargetMonth] = useState('')
   const [usageHistory, setUsageHistory] = useState<UsageHistoryEntry[]>([])
   const [showHistory, setShowHistory] = useState(false)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [searchMode, setSearchMode] = useState<'email' | 'uuid'>('email')
 
   const {
     setUserUsage,
+    setUserUsageByEmail,
     resetUserUsage,
+    resetUserUsageByEmail,
     getUserUsageHistory,
     bulkResetUsage,
+    searchUsersByEmail,
     isLoading,
     error,
     clearError,
@@ -30,20 +38,34 @@ export function AdminUsageControls({ userId = '', className = '' }: AdminUsageCo
   } = useAdminUsageControls()
 
   const handleSetUsage = async () => {
-    if (!inputUserId.trim()) {
-      alert('Please enter a user ID')
-      return
+    if (searchMode === 'email') {
+      if (!selectedUser) {
+        alert('Please select a user from the search results')
+        return
+      }
+    } else {
+      if (!inputUserId.trim()) {
+        alert('Please enter a user ID')
+        return
+      }
     }
 
     clearError()
     setSuccessMessage(null)
 
-    const result = await setUserUsage(
-      inputUserId.trim(),
-      imagesCount,
-      storageBytes,
-      targetMonth || undefined
-    )
+    const result = searchMode === 'email' 
+      ? await setUserUsageByEmail(
+          selectedUser.email,
+          imagesCount,
+          storageBytes,
+          targetMonth || undefined
+        )
+      : await setUserUsage(
+          inputUserId.trim(),
+          imagesCount,
+          storageBytes,
+          targetMonth || undefined
+        )
 
     if (result.success) {
       setSuccessMessage(
@@ -54,35 +76,57 @@ export function AdminUsageControls({ userId = '', className = '' }: AdminUsageCo
   }
 
   const handleResetUsage = async () => {
-    if (!inputUserId.trim()) {
-      alert('Please enter a user ID')
-      return
+    let userIdentifier: string
+    if (searchMode === 'email') {
+      if (!selectedUser) {
+        alert('Please select a user from the search results')
+        return
+      }
+      userIdentifier = selectedUser.email
+    } else {
+      if (!inputUserId.trim()) {
+        alert('Please enter a user ID')
+        return
+      }
+      userIdentifier = inputUserId.trim()
     }
 
-    if (!confirm(`Are you sure you want to reset usage stats for user ${inputUserId}?`)) {
+    if (!confirm(`Are you sure you want to reset usage stats for user ${userIdentifier}?`)) {
       return
     }
 
     clearError()
     setSuccessMessage(null)
 
-    const result = await resetUserUsage(inputUserId.trim(), targetMonth || undefined)
+    const result = searchMode === 'email' 
+      ? await resetUserUsageByEmail(selectedUser.email, targetMonth || undefined)
+      : await resetUserUsage(inputUserId.trim(), targetMonth || undefined)
 
     if (result.success) {
-      setSuccessMessage(`Successfully reset usage stats for user ${inputUserId}`)
+      setSuccessMessage(`Successfully reset usage stats for user ${userIdentifier}`)
     }
   }
 
   const handleGetHistory = async () => {
-    if (!inputUserId.trim()) {
-      alert('Please enter a user ID')
-      return
+    let userId: string
+    if (searchMode === 'email') {
+      if (!selectedUser) {
+        alert('Please select a user from the search results')
+        return
+      }
+      userId = selectedUser.id
+    } else {
+      if (!inputUserId.trim()) {
+        alert('Please enter a user ID')
+        return
+      }
+      userId = inputUserId.trim()
     }
 
     clearError()
     setSuccessMessage(null)
 
-    const history = await getUserUsageHistory(inputUserId.trim(), 6)
+    const history = await getUserUsageHistory(userId, 6)
     setUsageHistory(history)
     setShowHistory(true)
   }
@@ -107,6 +151,36 @@ export function AdminUsageControls({ userId = '', className = '' }: AdminUsageCo
         `Successfully reset usage stats for ${result.affected_users} users in ${formatMonth(result.month || monthToReset)}`
       )
     }
+  }
+
+  const handleEmailSearch = async () => {
+    if (!userEmail.trim()) {
+      alert('Please enter an email address or pattern')
+      return
+    }
+
+    clearError()
+    setSuccessMessage(null)
+
+    const results = await searchUsersByEmail(userEmail.trim(), 10)
+    setSearchResults(results)
+    setShowSearchResults(true)
+  }
+
+  const handleUserSelect = (user: UserSearchResult) => {
+    setSelectedUser(user)
+    setImagesCount(user.current_images)
+    setStorageBytes(user.current_storage)
+    setShowSearchResults(false)
+  }
+
+  const handleSearchModeChange = (mode: 'email' | 'uuid') => {
+    setSearchMode(mode)
+    setSelectedUser(null)
+    setSearchResults([])
+    setShowSearchResults(false)
+    setUserEmail('')
+    setInputUserId('')
   }
 
   return (
@@ -145,20 +219,135 @@ export function AdminUsageControls({ userId = '', className = '' }: AdminUsageCo
       )}
 
       <div className="space-y-6">
-        {/* User ID Input */}
+        {/* Search Mode Toggle */}
         <div>
-          <label htmlFor="user-id" className="block text-sm font-medium text-gray-700 mb-2">
-            User ID (UUID)
+          <label className="block text-sm font-medium text-gray-700 mb-2">
+            Search Mode
           </label>
-          <input
-            id="user-id"
-            type="text"
-            value={inputUserId}
-            onChange={(e) => setInputUserId(e.target.value)}
-            placeholder="Enter user UUID..."
-            className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
-          />
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleSearchModeChange('email')}
+              className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                searchMode === 'email'
+                  ? 'bg-blue-100 text-blue-700 border border-blue-300'
+                  : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200'
+              }`}
+            >
+              Email Search
+            </button>
+            <button
+              onClick={() => handleSearchModeChange('uuid')}
+              className={`px-3 py-1 text-sm rounded-md transition-colors ${
+                searchMode === 'uuid'
+                  ? 'bg-blue-100 text-blue-700 border border-blue-300'
+                  : 'bg-gray-100 text-gray-700 border border-gray-300 hover:bg-gray-200'
+              }`}
+            >
+              UUID Search
+            </button>
+          </div>
         </div>
+
+        {/* Email Search */}
+        {searchMode === 'email' && (
+          <div>
+            <label htmlFor="user-email" className="block text-sm font-medium text-gray-700 mb-2">
+              User Email
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="user-email"
+                type="email"
+                value={userEmail}
+                onChange={(e) => setUserEmail(e.target.value)}
+                placeholder="Enter email address or pattern..."
+                className="flex-1 rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+              />
+              <button
+                onClick={handleEmailSearch}
+                disabled={isLoading}
+                className="bg-blue-600 text-white px-3 py-2 rounded-md hover:bg-blue-700 disabled:opacity-50"
+              >
+                Search
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* UUID Search */}
+        {searchMode === 'uuid' && (
+          <div>
+            <label htmlFor="user-id" className="block text-sm font-medium text-gray-700 mb-2">
+              User ID (UUID)
+            </label>
+            <input
+              id="user-id"
+              type="text"
+              value={inputUserId}
+              onChange={(e) => setInputUserId(e.target.value)}
+              placeholder="Enter user UUID..."
+              className="block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+            />
+          </div>
+        )}
+
+        {/* Search Results */}
+        {showSearchResults && (
+          <div className="border border-gray-200 rounded-md p-4">
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-sm font-medium text-gray-900">Search Results</h4>
+              <button
+                onClick={() => setShowSearchResults(false)}
+                className="text-sm text-gray-500 hover:text-gray-700"
+              >
+                Hide
+              </button>
+            </div>
+            
+            {searchResults.length === 0 ? (
+              <p className="text-sm text-gray-500">No users found matching your search.</p>
+            ) : (
+              <div className="space-y-2">
+                {searchResults.map((user) => (
+                  <div
+                    key={user.id}
+                    onClick={() => void handleUserSelect(user)}
+                    className={`p-3 border rounded-md cursor-pointer hover:bg-gray-50 transition-colors ${
+                      selectedUser?.id === user.id
+                        ? 'border-blue-500 bg-blue-50'
+                        : 'border-gray-200'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div>
+                        <div className="font-medium text-gray-900">{user.email}</div>
+                        <div className="text-sm text-gray-500">
+                          {user.user_tier} • {user.current_images} images • {formatFileSize(user.current_storage)}
+                        </div>
+                      </div>
+                      <div className="text-xs text-gray-400">
+                        {user.last_activity ? new Date(user.last_activity).toLocaleDateString() : 'No activity'}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Selected User Display */}
+        {selectedUser && (
+          <div className="bg-blue-50 border border-blue-200 rounded-md p-4">
+            <h4 className="text-sm font-medium text-blue-900 mb-2">Selected User</h4>
+            <div className="text-sm text-blue-800">
+              <div><strong>Email:</strong> {selectedUser.email}</div>
+              <div><strong>Tier:</strong> {selectedUser.user_tier}</div>
+              <div><strong>Current Usage:</strong> {selectedUser.current_images} images, {formatFileSize(selectedUser.current_storage)}</div>
+              <div><strong>Last Activity:</strong> {selectedUser.last_activity ? new Date(selectedUser.last_activity).toLocaleDateString() : 'No activity'}</div>
+            </div>
+          </div>
+        )}
 
         {/* Target Month */}
         <div>
@@ -217,7 +406,7 @@ export function AdminUsageControls({ userId = '', className = '' }: AdminUsageCo
         <div className="flex flex-wrap gap-3">
           <button
             onClick={() => void handleSetUsage()}
-            disabled={isLoading}
+            disabled={isLoading || (searchMode === 'email' && !selectedUser) || (searchMode === 'uuid' && !inputUserId.trim())}
             className="bg-blue-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? 'Setting...' : 'Set Usage'}
@@ -225,7 +414,7 @@ export function AdminUsageControls({ userId = '', className = '' }: AdminUsageCo
 
           <button
             onClick={() => void handleResetUsage()}
-            disabled={isLoading}
+            disabled={isLoading || (searchMode === 'email' && !selectedUser) || (searchMode === 'uuid' && !inputUserId.trim())}
             className="bg-orange-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-orange-700 focus:outline-none focus:ring-2 focus:ring-orange-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? 'Resetting...' : 'Reset to Zero'}
@@ -233,7 +422,7 @@ export function AdminUsageControls({ userId = '', className = '' }: AdminUsageCo
 
           <button
             onClick={() => void handleGetHistory()}
-            disabled={isLoading}
+            disabled={isLoading || (searchMode === 'email' && !selectedUser) || (searchMode === 'uuid' && !inputUserId.trim())}
             className="bg-green-600 text-white px-4 py-2 rounded-lg font-medium hover:bg-green-700 focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-offset-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {isLoading ? 'Loading...' : 'Get History'}

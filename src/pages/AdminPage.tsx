@@ -2,8 +2,9 @@ import { useState } from 'react'
 import { Layout } from '@/components'
 import { TierConfigAdmin } from '@/components/admin'
 import { AdminUsageControls } from '@/components/admin'
+import { AdminTopUsers } from '@/components/admin'
 
-type AdminTab = 'tier-config' | 'usage-controls'
+type AdminTab = 'tier-config' | 'usage-controls' | 'top-users'
 
 export default function AdminPage() {
   const [activeTab, setActiveTab] = useState<AdminTab>('tier-config')
@@ -50,6 +51,19 @@ export default function AdminPage() {
               >
                 📊 Usage Controls
               </button>
+              
+              <button
+                onClick={() => setActiveTab('top-users')}
+                className={`
+                  py-4 px-1 border-b-2 font-medium text-sm transition-colors
+                  ${activeTab === 'top-users'
+                    ? 'border-blue-500 text-blue-600'
+                    : 'border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300'
+                  }
+                `}
+              >
+                🏆 Top Users
+              </button>
             </nav>
           </div>
 
@@ -77,6 +91,18 @@ export default function AdminPage() {
                   </p>
                 </div>
                 <AdminUsageControls />
+              </div>
+            )}
+
+            {activeTab === 'top-users' && (
+              <div>
+                <div className="mb-6">
+                  <h2 className="text-lg font-semibold text-gray-900 mb-2">Top Users Dashboard</h2>
+                  <p className="text-sm text-gray-600">
+                    View top users by usage statistics and monthly analytics overview.
+                  </p>
+                </div>
+                <AdminTopUsers />
               </div>
             )}
           </div>
@@ -141,6 +167,12 @@ export default function AdminPage() {
                 className="w-full text-left text-sm text-blue-600 hover:text-blue-700"
               >
                 → Reset user usage
+              </button>
+              <button 
+                onClick={() => setActiveTab('top-users')}
+                className="w-full text-left text-sm text-blue-600 hover:text-blue-700"
+              >
+                → View top users
               </button>
               <button className="w-full text-left text-sm text-blue-600 hover:text-blue-700">
                 → Export configuration

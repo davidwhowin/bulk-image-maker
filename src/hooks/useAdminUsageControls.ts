@@ -10,6 +10,38 @@ export interface UsageHistoryEntry {
   created_at: string
 }
 
+export interface UserSearchResult {
+  id: string
+  email: string
+  created_at: string
+  user_tier: string
+  current_images: number
+  current_storage: number
+  last_activity: string | null
+}
+
+export interface TopUserResult {
+  user_id: string
+  email: string
+  user_tier: string
+  images_processed: number
+  storage_used: number
+  last_updated: string
+  created_at: string
+}
+
+export interface UsageStatsOverview {
+  total_users: number
+  active_users: number
+  total_images: number
+  total_storage: number
+  avg_images_per_user: number
+  avg_storage_per_user: number
+  free_users: number
+  pro_users: number
+  premium_users: number
+}
+
 export interface SetUsageResult {
   success: boolean
   user_id?: string
@@ -103,12 +135,85 @@ export function useAdminUsageControls() {
     }
   }, [refreshUsageStats])
 
+  const setUserUsageByEmail = useCallback(async (
+    userEmail: string,
+    imagesCount: number,
+    storageBytes: number,
+    targetMonth?: string
+  ): Promise<SetUsageResult> => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      // Validate inputs
+      if (!userEmail) {
+        throw new Error('User email is required')
+      }
+
+      if (imagesCount < 0) {
+        throw new Error('Images count cannot be negative')
+      }
+
+      if (storageBytes < 0) {
+        throw new Error('Storage bytes cannot be negative')
+      }
+
+      if (targetMonth && !/^\d{4}-\d{2}$/.test(targetMonth)) {
+        throw new Error('Invalid month format. Use YYYY-MM (e.g., 2025-01)')
+      }
+
+      // Call the email-based database function
+      const { data, error: rpcError } = await supabase.rpc('set_usage_stats_by_email', {
+        user_email: userEmail,
+        images_count: imagesCount,
+        storage_bytes: storageBytes,
+        target_month: targetMonth || null
+      })
+
+      if (rpcError) {
+        throw new Error(`Database error: ${rpcError.message}`)
+      }
+
+      const result = data as SetUsageResult
+
+      if (!result.success) {
+        throw new Error(result.error || 'Unknown error occurred')
+      }
+
+      // Refresh usage stats if it's for the current user
+      const { user } = useAuthStore.getState()
+      if (user && user.email === userEmail) {
+        await refreshUsageStats()
+      }
+
+      return result
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to set usage stats'
+      setError(errorMessage)
+      
+      return {
+        success: false,
+        error: errorMessage
+      }
+    } finally {
+      setIsLoading(false)
+    }
+  }, [refreshUsageStats])
+
   const resetUserUsage = useCallback(async (
     userId: string,
     targetMonth?: string
   ): Promise<SetUsageResult> => {
     return setUserUsage(userId, 0, 0, targetMonth)
   }, [setUserUsage])
+
+  const resetUserUsageByEmail = useCallback(async (
+    userEmail: string,
+    targetMonth?: string
+  ): Promise<SetUsageResult> => {
+    return setUserUsageByEmail(userEmail, 0, 0, targetMonth)
+  }, [setUserUsageByEmail])
 
   const getUserUsageHistory = useCallback(async (
     userId: string,
@@ -225,12 +330,136 @@ export function useAdminUsageControls() {
     return new Date().toISOString().slice(0, 7) // Returns YYYY-MM format
   }, [])
 
+  const getUserByEmail = useCallback(async (userEmail: string): Promise<UserSearchResult | null> => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      if (!userEmail) {
+        throw new Error('User email is required')
+      }
+
+      const { data, error: rpcError } = await supabase.rpc('get_user_by_email', {
+        user_email: userEmail
+      })
+
+      if (rpcError) {
+        throw new Error(`Database error: ${rpcError.message}`)
+      }
+
+      return data && data.length > 0 ? data[0] : null
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to get user by email'
+      setError(errorMessage)
+      return null
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  const searchUsersByEmail = useCallback(async (
+    emailPattern: string,
+    limit: number = 10
+  ): Promise<UserSearchResult[]> => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      if (!emailPattern) {
+        throw new Error('Email pattern is required')
+      }
+
+      const { data, error: rpcError } = await supabase.rpc('search_users_by_email', {
+        email_pattern: emailPattern,
+        limit_count: limit
+      })
+
+      if (rpcError) {
+        throw new Error(`Database error: ${rpcError.message}`)
+      }
+
+      return data || []
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to search users'
+      setError(errorMessage)
+      return []
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  const getTopUsersByUsage = useCallback(async (
+    targetMonth?: string,
+    limit: number = 10,
+    orderBy: 'images' | 'storage' = 'images'
+  ): Promise<TopUserResult[]> => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc('get_top_users_by_usage', {
+        target_month: targetMonth || null,
+        limit_count: limit,
+        order_by: orderBy
+      })
+
+      if (rpcError) {
+        throw new Error(`Database error: ${rpcError.message}`)
+      }
+
+      return data || []
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to get top users'
+      setError(errorMessage)
+      return []
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
+  const getUsageStatsOverview = useCallback(async (
+    targetMonth?: string
+  ): Promise<UsageStatsOverview | null> => {
+    setIsLoading(true)
+    setError(null)
+
+    try {
+      const { data, error: rpcError } = await supabase.rpc('get_usage_stats_by_month', {
+        target_month: targetMonth || null
+      })
+
+      if (rpcError) {
+        throw new Error(`Database error: ${rpcError.message}`)
+      }
+
+      return data && data.length > 0 ? data[0] : null
+
+    } catch (err) {
+      const errorMessage = err instanceof Error ? err.message : 'Failed to get usage stats overview'
+      setError(errorMessage)
+      return null
+    } finally {
+      setIsLoading(false)
+    }
+  }, [])
+
   return {
     // Main functions
     setUserUsage,
+    setUserUsageByEmail,
     resetUserUsage,
+    resetUserUsageByEmail,
     getUserUsageHistory,
     bulkResetUsage,
+    
+    // New email-based functions
+    getUserByEmail,
+    searchUsersByEmail,
+    getTopUsersByUsage,
+    getUsageStatsOverview,
     
     // State
     isLoading,
