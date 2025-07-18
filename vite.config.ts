@@ -25,9 +25,38 @@ export default defineConfig({
     rollupOptions: {
       output: {
         manualChunks: {
-          vendor: ['react', 'react-dom'],
+          // Core framework (most stable)
+          vendor: ['react', 'react-dom', 'react-router-dom'],
+
+          // Supabase and authentication (heavy, separate chunk)
+          supabase: ['@supabase/supabase-js'],
+
+          // Payment system (only loads when needed)
+          stripe: ['@stripe/stripe-js', 'stripe'],
+
+          // UI components (frequently updated)
           ui: ['@headlessui/react'],
+
+          // Icons (optimize lucide-react import)
+          icons: ['lucide-react'],
+
+          // State management (small, stable)
           state: ['zustand'],
+
+          // Image processing (large, separate)
+          imaging: ['jszip'],
+
+          // Admin components (lazy loaded)
+          admin: (id: string) => {
+            if (
+              id.includes('src/components/admin') ||
+              id.includes('src/pages/admin') ||
+              id.includes('AdminPage')
+            ) {
+              return 'admin';
+            }
+            return undefined;
+          },
         },
       },
     },

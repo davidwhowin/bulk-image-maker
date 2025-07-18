@@ -1,6 +1,10 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, memo, useMemo } from 'react';
 import { cn, formatFileSize } from '@/lib/utils';
-import { createOptimizedIntersectionObserver, performanceMonitor, MemoryManager } from '@/lib/performance-utils';
+import {
+  createOptimizedIntersectionObserver,
+  performanceMonitor,
+  MemoryManager,
+} from '@/lib/performance-utils';
 import { FilePreviewItem } from './FilePreviewItem';
 import type { ImageFile } from '@/types';
 
@@ -12,36 +16,55 @@ interface FilePreviewGridProps {
 
 const ITEMS_PER_PAGE = 20;
 
-export function FilePreviewGrid({ files, onRemoveFile, onClearAll }: FilePreviewGridProps) {
+export const FilePreviewGrid = memo(function FilePreviewGrid({
+  files,
+  onRemoveFile,
+  onClearAll,
+}: FilePreviewGridProps) {
   const [showClearConfirm, setShowClearConfirm] = useState(false);
   const [visibleCount, setVisibleCount] = useState(ITEMS_PER_PAGE);
   const [visibleItems, setVisibleItems] = useState(new Set<string>());
   const gridRef = useRef<HTMLDivElement>(null);
   const loadMoreRef = useRef<HTMLDivElement>(null);
-  
-  // Calculate totals
-  const totalSize = files.reduce((sum, file) => sum + file.size, 0);
-  const statusCounts = files.reduce((acc, file) => {
-    acc[file.status] = (acc[file.status] || 0) + 1;
-    return acc;
-  }, {} as Record<string, number>);
+
+  // Memoize expensive calculations
+  const { totalSize, statusCounts } = useMemo(() => {
+    const totalSize = files.reduce((sum, file) => sum + file.size, 0);
+    const statusCounts = files.reduce(
+      (acc, file) => {
+        acc[file.status] = (acc[file.status] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
+    return { totalSize, statusCounts };
+  }, [files]);
+
+  // Memoize displayed files to prevent unnecessary recalculation
+  const displayedFiles = useMemo(
+    () => files.slice(0, visibleCount),
+    [files, visibleCount]
+  );
 
   // Handle keyboard navigation
-  const handleKeyDown = useCallback((e: React.KeyboardEvent, fileId: string) => {
-    if (e.key === 'Delete') {
-      onRemoveFile(fileId);
-    }
-  }, [onRemoveFile]);
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent, fileId: string) => {
+      if (e.key === 'Delete') {
+        onRemoveFile(fileId);
+      }
+    },
+    [onRemoveFile]
+  );
 
   // Performance monitoring
   useEffect(() => {
     performanceMonitor.updateFileCounts(files.length, visibleItems.size);
     performanceMonitor.recordMemoryUsage();
-    
+
     // Check if cleanup is needed
     const memoryManager = MemoryManager.getInstance();
     if (memoryManager.shouldCleanup()) {
-      console.log('Memory threshold reached, consider clearing caches');
+      console.warn('Memory threshold reached, consider clearing caches');
     }
   }, [files.length, visibleItems.size]);
 
@@ -54,16 +77,16 @@ export function FilePreviewGrid({ files, onRemoveFile, onClearAll }: FilePreview
             if (entry.isIntersecting) {
               const itemId = entry.target.getAttribute('data-file-id');
               if (itemId) {
-                setVisibleItems(prev => new Set([...prev, itemId]));
+                setVisibleItems((prev) => new Set([...prev, itemId]));
               }
             }
           });
         });
       },
-      { 
-        threshold: 0.1, 
+      {
+        threshold: 0.1,
         rootMargin: '100px',
-        throttleDelay: 150
+        throttleDelay: 150,
       }
     );
 
@@ -80,13 +103,15 @@ export function FilePreviewGrid({ files, onRemoveFile, onClearAll }: FilePreview
       (entries) => {
         if (entries[0].isIntersecting && visibleCount < files.length) {
           performanceMonitor.measureRenderTime(() => {
-            setVisibleCount(prev => Math.min(prev + ITEMS_PER_PAGE, files.length));
+            setVisibleCount((prev) =>
+              Math.min(prev + ITEMS_PER_PAGE, files.length)
+            );
           });
         }
       },
-      { 
+      {
         threshold: 0.1,
-        throttleDelay: 200
+        throttleDelay: 200,
       }
     );
 
@@ -99,7 +124,7 @@ export function FilePreviewGrid({ files, onRemoveFile, onClearAll }: FilePreview
 
   if (files.length === 0) {
     return (
-      <div className="text-center py-8">
+      <div className="py-8 text-center">
         <p className="text-gray-500">No files uploaded yet</p>
         <div role="status" aria-live="polite" className="sr-only">
           No files
@@ -108,13 +133,10 @@ export function FilePreviewGrid({ files, onRemoveFile, onClearAll }: FilePreview
     );
   }
 
-  // Get files to display (with virtual scrolling)
-  const displayedFiles = files.slice(0, visibleCount);
-
   return (
     <div className="space-y-4">
       {/* File Summary */}
-      <div className="flex justify-between items-center">
+      <div className="flex items-center justify-between">
         <div className="space-y-1">
           <h3 className="text-lg font-medium text-gray-900">
             {files.length} file{files.length !== 1 ? 's' : ''} selected
@@ -123,15 +145,21 @@ export function FilePreviewGrid({ files, onRemoveFile, onClearAll }: FilePreview
             {formatFileSize(totalSize)} total
           </p>
           {Object.keys(statusCounts).length > 1 && (
-            <div className="text-xs text-gray-500 space-x-4">
-              {statusCounts.pending && <span>{statusCounts.pending} pending</span>}
-              {statusCounts.processing && <span>{statusCounts.processing} processing</span>}
-              {statusCounts.completed && <span>{statusCounts.completed} completed</span>}
+            <div className="space-x-4 text-xs text-gray-500">
+              {statusCounts.pending && (
+                <span>{statusCounts.pending} pending</span>
+              )}
+              {statusCounts.processing && (
+                <span>{statusCounts.processing} processing</span>
+              )}
+              {statusCounts.completed && (
+                <span>{statusCounts.completed} completed</span>
+              )}
               {statusCounts.error && <span>{statusCounts.error} error</span>}
             </div>
           )}
         </div>
-        
+
         <button
           onClick={() => setShowClearConfirm(true)}
           className="btn-secondary text-sm"
@@ -143,15 +171,16 @@ export function FilePreviewGrid({ files, onRemoveFile, onClearAll }: FilePreview
 
       {/* Clear Confirmation Dialog */}
       {showClearConfirm && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="bg-white rounded-lg p-6 max-w-sm mx-4">
-            <h3 className="text-lg font-medium text-gray-900 mb-2">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
+          <div className="mx-4 max-w-sm rounded-lg bg-white p-6">
+            <h3 className="mb-2 text-lg font-medium text-gray-900">
               Clear All Files
             </h3>
-            <p className="text-sm text-gray-600 mb-4">
-              Are you sure you want to clear all files? This action cannot be undone.
+            <p className="mb-4 text-sm text-gray-600">
+              Are you sure you want to clear all files? This action cannot be
+              undone.
             </p>
-            <div className="flex gap-3 justify-end">
+            <div className="flex justify-end gap-3">
               <button
                 onClick={() => setShowClearConfirm(false)}
                 className="btn-secondary text-sm"
@@ -163,7 +192,7 @@ export function FilePreviewGrid({ files, onRemoveFile, onClearAll }: FilePreview
                   onClearAll();
                   setShowClearConfirm(false);
                 }}
-                className="bg-red-600 text-white px-3 py-2 rounded-md text-sm hover:bg-red-700"
+                className="rounded-md bg-red-600 px-3 py-2 text-sm text-white hover:bg-red-700"
               >
                 Clear All
               </button>
@@ -195,9 +224,9 @@ export function FilePreviewGrid({ files, onRemoveFile, onClearAll }: FilePreview
 
       {/* Load More Indicator */}
       {visibleCount < files.length && (
-        <div ref={loadMoreRef} className="text-center py-4">
+        <div ref={loadMoreRef} className="py-4 text-center">
           <div className="inline-flex items-center space-x-2">
-            <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-blue-600"></div>
+            <div className="h-4 w-4 animate-spin rounded-full border-b-2 border-blue-600"></div>
             <p className="text-sm text-gray-500">
               Loading more files... ({visibleCount} of {files.length})
             </p>
@@ -207,7 +236,7 @@ export function FilePreviewGrid({ files, onRemoveFile, onClearAll }: FilePreview
 
       {/* All loaded indicator */}
       {visibleCount >= files.length && files.length > ITEMS_PER_PAGE && (
-        <div className="text-center py-4">
+        <div className="py-4 text-center">
           <p className="text-sm text-gray-500">
             All {files.length} files loaded
           </p>
@@ -216,8 +245,10 @@ export function FilePreviewGrid({ files, onRemoveFile, onClearAll }: FilePreview
 
       {/* Status for Screen Reader */}
       <div role="status" aria-live="polite" className="sr-only">
-        {files.length > 0 ? `${files.length} file${files.length !== 1 ? 's' : ''}` : 'No files'}
+        {files.length > 0
+          ? `${files.length} file${files.length !== 1 ? 's' : ''}`
+          : 'No files'}
       </div>
     </div>
   );
-}
+});

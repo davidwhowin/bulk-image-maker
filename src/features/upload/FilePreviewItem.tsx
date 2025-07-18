@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { useImageWorker } from '@/hooks/useImageWorker';
 import { performanceMonitor, MemoryManager } from '@/lib/performance-utils';
 import { formatFileSize } from '@/lib/utils';
@@ -11,11 +11,11 @@ interface FilePreviewItemProps {
   isVisible?: boolean;
 }
 
-export function FilePreviewItem({ 
-  file, 
-  onRemoveFile, 
+export const FilePreviewItem = memo(function FilePreviewItem({
+  file,
+  onRemoveFile,
   onKeyDown,
-  isVisible = true 
+  isVisible = true,
 }: FilePreviewItemProps) {
   const [thumbnail, setThumbnail] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -35,10 +35,15 @@ export function FilePreviewItem({
       // Record performance metrics
       performanceMonitor.recordMemoryUsage();
 
-      const generateOperation = () => 
-        generateThumbnailWorker(file.file, { width: 200, height: 200, quality: 0.7 });
+      const generateOperation = () =>
+        generateThumbnailWorker(file.file, {
+          width: 200,
+          height: 200,
+          quality: 0.7,
+        });
 
-      performanceMonitor.measureThumbnailGeneration(generateOperation)
+      performanceMonitor
+        .measureThumbnailGeneration(generateOperation)
         .then((dataUrl) => {
           setThumbnail(dataUrl);
           // Track for potential cleanup
@@ -66,61 +71,89 @@ export function FilePreviewItem({
     };
   }, [thumbnail, memoryManager]);
 
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (onKeyDown) {
-      onKeyDown(e, file.id);
-    }
-  };
+  const handleKeyDown = useCallback(
+    (e: React.KeyboardEvent) => {
+      if (onKeyDown) {
+        onKeyDown(e, file.id);
+      }
+    },
+    [onKeyDown, file.id]
+  );
+
+  const handleRemoveFile = useCallback(() => {
+    onRemoveFile(file.id);
+  }, [onRemoveFile, file.id]);
 
   return (
     <div
       data-testid={`file-preview-item-${file.id}`}
-      className="relative group bg-white rounded-lg border border-gray-200 p-3 hover:border-gray-300 transition-colors focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2"
+      className="group relative rounded-lg border border-gray-200 bg-white p-3 transition-colors focus-within:ring-2 focus-within:ring-blue-500 focus-within:ring-offset-2 hover:border-gray-300"
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >
       {/* File Thumbnail */}
       <div
         ref={thumbnailRef}
-        className="aspect-square bg-gray-100 rounded-md mb-2 flex items-center justify-center overflow-hidden"
+        className="mb-2 flex aspect-square items-center justify-center overflow-hidden rounded-md bg-gray-100"
         data-testid={`file-thumbnail-${file.id}`}
         data-lazy={(!isVisible).toString()}
       >
         {isLoading ? (
           <div className="flex items-center justify-center">
-            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+            <div className="h-8 w-8 animate-spin rounded-full border-b-2 border-blue-600"></div>
           </div>
         ) : thumbnail ? (
           <img
             src={thumbnail}
             alt={`Preview of ${file.name}`}
-            className="w-full h-full object-cover rounded-md"
+            className="h-full w-full rounded-md object-cover"
             loading="lazy"
           />
         ) : error ? (
-          <div className="text-center p-2">
-            <svg className="w-6 h-6 text-red-400 mx-auto mb-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          <div className="p-2 text-center">
+            <svg
+              className="mx-auto mb-1 h-6 w-6 text-red-400"
+              fill="none"
+              stroke="currentColor"
+              viewBox="0 0 24 24"
+            >
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L3.732 16.5c-.77.833.192 2.5 1.732 2.5z"
+              />
             </svg>
             <span className="text-xs text-red-600">Error loading</span>
           </div>
         ) : (
-          <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          <svg
+            className="h-8 w-8 text-gray-400"
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"
+            />
           </svg>
         )}
       </div>
 
       {/* File Info */}
       <div className="space-y-1">
-        <p className="text-xs font-medium text-gray-900 truncate" title={file.name}>
+        <p
+          className="truncate text-xs font-medium text-gray-900"
+          title={file.name}
+        >
           {file.name}
         </p>
-        <p className="text-xs text-gray-500">
-          {formatFileSize(file.size)}
-        </p>
+        <p className="text-xs text-gray-500">{formatFileSize(file.size)}</p>
         {file.type && (
-          <p className="text-xs text-gray-400 uppercase">
+          <p className="text-xs uppercase text-gray-400">
             {file.type.replace('image/', '')}
           </p>
         )}
@@ -129,17 +162,17 @@ export function FilePreviewItem({
       {/* Status Indicator */}
       {file.status === 'processing' && (
         <div className="mt-2">
-          <div className="w-full bg-gray-200 rounded-full h-1">
+          <div className="h-1 w-full rounded-full bg-gray-200">
             <div
-              className="bg-blue-600 h-1 rounded-full transition-all duration-300"
+              className="h-1 rounded-full bg-blue-600 transition-all duration-300"
               style={{ width: `${file.progress || 0}%` }}
             />
           </div>
-          <p className="text-xs text-gray-500 mt-1">{file.progress || 0}%</p>
-          <div 
-            role="progressbar" 
-            aria-valuenow={file.progress || 0} 
-            aria-valuemin={0} 
+          <p className="mt-1 text-xs text-gray-500">{file.progress || 0}%</p>
+          <div
+            role="progressbar"
+            aria-valuenow={file.progress || 0}
+            aria-valuemin={0}
             aria-valuemax={100}
             aria-label={`Processing ${file.name}`}
           />
@@ -149,8 +182,16 @@ export function FilePreviewItem({
       {file.status === 'completed' && (
         <div className="mt-2" data-testid="file-status-completed">
           <div className="flex items-center text-green-600">
-            <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+            <svg
+              className="mr-1 h-3 w-3"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fillRule="evenodd"
+                d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
+                clipRule="evenodd"
+              />
             </svg>
             <span className="text-xs">Done</span>
           </div>
@@ -160,13 +201,24 @@ export function FilePreviewItem({
       {file.status === 'error' && (
         <div className="mt-2" data-testid="file-status-error">
           <div className="flex items-center text-red-600">
-            <svg className="w-3 h-3 mr-1" fill="currentColor" viewBox="0 0 20 20">
-              <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z" clipRule="evenodd" />
+            <svg
+              className="mr-1 h-3 w-3"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fillRule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                clipRule="evenodd"
+              />
             </svg>
             <span className="text-xs">Error</span>
           </div>
           {file.error && (
-            <p className="text-xs text-red-600 mt-1 truncate" title={file.error}>
+            <p
+              className="mt-1 truncate text-xs text-red-600"
+              title={file.error}
+            >
               {file.error}
             </p>
           )}
@@ -175,8 +227,8 @@ export function FilePreviewItem({
 
       {/* Remove Button */}
       <button
-        onClick={() => onRemoveFile(file.id)}
-        className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center text-xs hover:bg-red-600 opacity-0 group-hover:opacity-100 transition-opacity focus:opacity-100"
+        onClick={handleRemoveFile}
+        className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full bg-red-500 text-xs text-white opacity-0 transition-opacity hover:bg-red-600 focus:opacity-100 group-hover:opacity-100"
         aria-label={`Remove ${file.name}`}
         title={`Remove ${file.name}`}
       >
@@ -184,7 +236,7 @@ export function FilePreviewItem({
       </button>
 
       {/* Selection checkbox for future batch operations */}
-      <div className="absolute top-2 left-2 opacity-0 group-hover:opacity-100 transition-opacity">
+      <div className="absolute left-2 top-2 opacity-0 transition-opacity group-hover:opacity-100">
         <input
           type="checkbox"
           className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -194,4 +246,4 @@ export function FilePreviewItem({
       </div>
     </div>
   );
-}
+});
