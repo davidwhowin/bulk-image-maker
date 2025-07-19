@@ -180,6 +180,16 @@ import type { ImageFile } from '@/types';
 - `supabase.rpc('set_usage_stats', params)`: Manually set user usage statistics
 - `supabase.rpc('reset_usage_stats', params)`: Reset monthly usage for users
 
+### Stripe Integration Functions (`api/stripe/` and `server.js`)
+- **Customer Reuse Logic**: Multi-layer customer lookup to prevent duplicates
+  - Check `subscriptions` table for existing `stripe_customer_id`
+  - Check `billing_info` table for stored customer data
+  - Search Stripe by email for existing customers
+  - Create new customer only if none exists
+- **Webhook Handlers**: Process subscription lifecycle events with proper database updates
+- **Error Recovery**: Supabase API fallbacks for database connection stability
+- **Development Server**: `server.js` provides Express endpoints for local development
+
 ## Development Workflow
 
 ### Feature Development
@@ -200,8 +210,10 @@ import type { ImageFile } from '@/types';
 ### Stripe Payment Processing
 The application includes a complete Stripe payment system with:
 - **Hosted Checkout**: Secure payment processing via Stripe-hosted pages
+- **Customer Reuse**: Intelligent customer lookup prevents duplicate Stripe customers
 - **Webhook Integration**: Automatic tier upgrades via Express.js webhook server
 - **Subscription Management**: Customer portal for billing management
+- **Database Stability**: Uses Supabase API instead of direct PostgreSQL connections
 - **Fallback Mechanisms**: Manual tier update system for database quota issues
 - **Error Handling**: Comprehensive error recovery and user feedback
 
@@ -218,8 +230,10 @@ For full payment testing, run three services:
 - **Quota Handling**: Automatic fallback for BigQuery quota exceeded errors
 
 ### Key Files
-- `server.js` - Express server with webhook handling
-- `src/lib/stripe-checkout.ts` - Stripe integration service
+- `server.js` - Express server with webhook handling and customer reuse logic
+- `api/stripe/create-checkout-session.ts` - Vercel API route with customer lookup
+- `api/stripe/webhook.ts` - Production webhook handler with stable database updates
+- `src/lib/stripe-checkout.ts` - Frontend Stripe integration service
 - `src/pages/PlansPage.tsx` - Payment UI with fallback handling
 - `src/lib/auth-store.ts` - Authentication and tier management
 

@@ -361,4 +361,115 @@ Successfully implemented and deployed a complete Stripe payment system with comp
 - ✅ Error handling provides clear user feedback
 - ✅ BigQuery quota issues are handled gracefully
 
-The application is now production-ready with full database integration, comprehensive admin system, optimized monetization strategy, and robust Stripe payment processing!
+---
+
+## 🔧 Stripe Integration Database & Customer Fixes
+
+Fixed critical Stripe integration issues: database connection termination errors and customer duplication problems.
+
+### Problems Identified
+
+#### 1. Database Connection Termination Error
+- **Issue**: `{:shutdown, :client_termination}` errors during checkout session creation
+- **Root Cause**: Direct PostgreSQL pool connections causing connection instability
+- **Impact**: Complete checkout failure with server crashes
+
+#### 2. Customer Duplication in Stripe
+- **Issue**: Every transaction created a new customer instead of reusing existing ones
+- **Root Cause**: No customer lookup logic before creating checkout sessions
+- **Impact**: Cluttered Stripe dashboard and poor customer data management
+
+#### 3. Webhook Database Column Errors
+- **Issue**: `column user_profiles.stripe_subscription_id does not exist` errors
+- **Root Cause**: Incorrect table queries in webhook handlers
+- **Impact**: Failed subscription cancellations and tier downgrades
+
+### Solutions Implemented
+
+#### 1. Replaced Direct PostgreSQL with Supabase API
+```javascript
+// BEFORE: Unstable PostgreSQL direct connection
+const pgPool = new Pool({ /* direct connection config */ })
+
+// AFTER: Stable Supabase API client
+const supabase = createClient(
+  process.env.VITE_SUPABASE_URL,
+  process.env.SUPABASE_SERVICE_ROLE_KEY
+)
+```
+
+#### 2. Comprehensive Customer Reuse Logic
+```javascript
+// Multi-layer customer lookup strategy
+// 1. Check subscriptions table
+const { data: existingSubscription } = await supabase
+  .from('subscriptions')
+  .select('stripe_customer_id')
+  .eq('user_id', userId)
+
+// 2. Check billing_info table  
+const { data: existingBilling } = await supabase
+  .from('billing_info')
+  .select('stripe_customer_id')
+  .eq('user_id', userId)
+
+// 3. Search Stripe by email
+const existingCustomers = await stripe.customers.list({
+  email: userEmail,
+  limit: 1
+})
+
+// 4. Create new customer ONLY if none found
+```
+
+#### 3. Fixed Webhook Database Queries
+```javascript
+// BEFORE: Incorrect table query
+const { data: profile } = await supabase
+  .from('user_profiles')
+  .eq('stripe_subscription_id', subscription.id) // Column doesn't exist
+
+// AFTER: Correct table and column
+const { data: subscriptionData } = await supabase
+  .from('subscriptions')
+  .select('user_id')
+  .eq('stripe_subscription_id', subscription.id) // Correct relationship
+```
+
+### Architecture Improvements
+
+#### Development vs Production Setup
+- **Development**: `server.js` Express server with customer reuse logic
+- **Production**: `api/stripe/` Vercel serverless functions with identical logic
+- **Consistency**: Both implementations use same customer lookup strategy
+
+#### Enhanced Error Handling
+- **Database Fallbacks**: Graceful handling of connection issues
+- **Webhook Reliability**: Proper error recovery in subscription lifecycle
+- **User Feedback**: Clear success/error messages during payment flow
+
+#### ESLint Configuration Updates
+- **API Routes**: More lenient TypeScript rules for Vercel functions
+- **Server Files**: Excluded `server.js` from strict type checking
+- **Code Quality**: Maintained safety while allowing necessary flexibility
+
+### Files Modified
+- ✅ `server.js` - Added customer reuse logic, removed unstable PostgreSQL connections
+- ✅ `api/stripe/create-checkout-session.ts` - Customer lookup and reuse implementation
+- ✅ `api/stripe/webhook.ts` - Fixed database queries and enhanced error handling
+- ✅ `eslint.config.js` - Updated rules for API development workflow
+
+### Testing Results
+- ✅ **Customer Reuse**: Existing customers properly reused across multiple subscriptions
+- ✅ **Database Stability**: No more connection termination errors
+- ✅ **Webhook Processing**: Clean subscription lifecycle management
+- ✅ **Error Recovery**: Graceful fallbacks maintain payment success rates
+- ✅ **Data Consistency**: Proper relationships between users, subscriptions, and Stripe customers
+
+### Expected Benefits
+- **Cleaner Stripe Dashboard**: No more duplicate customers
+- **Better Data Management**: Consistent customer-subscription relationships  
+- **Improved Reliability**: Stable database connections prevent checkout failures
+- **Enhanced User Experience**: Smoother payment flows with proper error handling
+
+The application now has a **robust and production-ready** Stripe integration with intelligent customer management and error-resistant database operations!
